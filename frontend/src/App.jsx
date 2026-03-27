@@ -1,17 +1,12 @@
-import { useState } from 'react';
-import './App.css';
+import Dashboard from './pages/Dashboard';
+import './styles/theme.css';
 
 function App() {
-    const [count, setCount] = useState(0);
-
-    return (
-        <div className="App">
-            <h1>iTECify - Platformă de Colaborare</h1>
-            <button onClick={() => setCount(count + 1)}>
-                Clic aici: {count}
-            </button>
-        </div>
-    );
+  return (
+    <div className="min-h-screen bg-[#05070c] text-slate-100 antialiased">
+      <Dashboard />
+    </div>
+  );
 }
 
 export default App;
