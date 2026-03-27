@@ -1,28 +1,22 @@
-<<<<<<< HEAD
 import React from 'react'
-import Welcome from './pages/Welcome.jsx'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import Welcome from './pages/Welcome'
+import SignIn from './pages/SignIn'
+import SignUp from './pages/SignUp'
 import './App.css'
 
 function App() {
     return (
-        <div className="App">
-            <Welcome />
-        </div>
+        <Router>
+            <div className="App">
+                <Routes>
+                    <Route path="/" element={<Welcome />} />
+                    <Route path="/signin" element={<SignIn />} />
+                    <Route path="/signup" element={<SignUp />} />
+                </Routes>
+            </div>
+        </Router>
     )
 }
 
 export default App
-=======
-import Dashboard from './pages/Dashboard';
-import './styles/theme.css';
-
-function App() {
-  return (
-    <div className="min-h-screen bg-[#05070c] text-slate-100 antialiased">
-      <Dashboard />
-    </div>
-  );
-}
-
-export default App;
->>>>>>> 049662a71c91d25bea146edb4e70e5d343d24a7c
