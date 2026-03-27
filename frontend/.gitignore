@@ -6,3 +6,12 @@
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
+
+# Node / Vite
+node_modules/
+dist/
+
+# Environment
+.env
+.env.*
+!.env.example
