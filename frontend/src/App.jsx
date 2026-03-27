@@ -1,17 +1,13 @@
-import { useState } from 'react';
-import './App.css';
+import React from 'react'
+import Welcome from './pages/Welcome.jsx'
+import './App.css'
 
 function App() {
-    const [count, setCount] = useState(0);
-
     return (
         <div className="App">
-            <h1>iTECify - Platformă de Colaborare</h1>
-            <button onClick={() => setCount(count + 1)}>
-                Clic aici: {count}
-            </button>
+            <Welcome />
         </div>
-    );
+    )
 }
 
-export default App;
+export default App
