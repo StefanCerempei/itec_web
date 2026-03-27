@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import './SignIn.css'
+import { supabase, hasSupabaseClientConfig } from '../lib/supabaseClient'
 
 const SignIn = () => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [rememberMe, setRememberMe] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
+    const [socialLoading, setSocialLoading] = useState('')
+    const [errorMessage, setErrorMessage] = useState('')
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
+    const navigate = useNavigate()
 
     useEffect(() => {
         const handleMouseMove = (e) => {
@@ -18,19 +24,74 @@ const SignIn = () => {
         return () => window.removeEventListener('mousemove', handleMouseMove)
     }, [])
 
+    useEffect(() => {
+        const syncSupabaseSession = async () => {
+            if (!hasSupabaseClientConfig || !supabase) return
+
+            const { data, error } = await supabase.auth.getSession()
+            if (error || !data?.session) return
+
+            const { session } = data
+            localStorage.setItem('authToken', session.access_token)
+            localStorage.setItem('authUser', JSON.stringify(session.user))
+            navigate('/')
+        }
+
+        syncSupabaseSession()
+    }, [navigate])
+
     const handleSubmit = async (e) => {
         e.preventDefault()
         setIsLoading(true)
+        setErrorMessage('')
 
-        // Simulate API call
-        setTimeout(() => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/signin`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            })
+
+            const payload = await response.json()
+            if (!response.ok) {
+                throw new Error(payload.message || 'Sign in failed.')
+            }
+
+            localStorage.setItem('authToken', payload.token)
+            localStorage.setItem('authUser', JSON.stringify(payload.user))
+            localStorage.setItem('rememberMe', String(rememberMe))
+
+            navigate('/')
+        } catch (error) {
+            setErrorMessage(error.message || 'Unable to sign in.')
+        } finally {
             setIsLoading(false)
-            console.log('Sign in with:', { email, password, rememberMe })
-        }, 1500)
+        }
     }
 
-    const handleSocialLogin = (provider) => {
-        console.log(`Login with ${provider}`)
+    const handleSocialLogin = async (provider) => {
+        setErrorMessage('')
+
+        if (!hasSupabaseClientConfig || !supabase) {
+            setErrorMessage('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in frontend .env.')
+            return
+        }
+
+        try {
+            setSocialLoading(provider)
+
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider,
+                options: {
+                    redirectTo: `${window.location.origin}/signin`
+                }
+            })
+
+            if (error) throw error
+        } catch (error) {
+            setErrorMessage(error.message || `Unable to continue with ${provider}.`)
+            setSocialLoading('')
+        }
     }
 
     return (
@@ -69,6 +130,8 @@ const SignIn = () => {
                         <button
                             className="social-btn github"
                             onClick={() => handleSocialLogin('github')}
+                            type="button"
+                            disabled={socialLoading === 'github'}
                         >
                             <svg viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.22-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.86 1.23 1.09 1.83 2.83 1.315 3.525.995.105-.78.42-1.315.765-1.615-2.67-.3-5.46-1.335-5.46-5.925 0-1.31.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
@@ -79,6 +142,8 @@ const SignIn = () => {
                         <button
                             className="social-btn google"
                             onClick={() => handleSocialLogin('google')}
+                            type="button"
+                            disabled={socialLoading === 'google'}
                         >
                             <svg viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -88,6 +153,7 @@ const SignIn = () => {
                             </svg>
                             Continue with Google
                         </button>
+
                     </div>
 
                     <div className="divider">
@@ -96,6 +162,10 @@ const SignIn = () => {
 
                     {/* Sign In Form */}
                     <form className="signin-form" onSubmit={handleSubmit}>
+                        {errorMessage && (
+                            <p style={{ color: '#f87171', marginBottom: '12px', fontSize: '0.95rem' }}>{errorMessage}</p>
+                        )}
+
                         <div className="input-group">
                             <label htmlFor="email">Email address</label>
                             <div className="input-wrapper">
