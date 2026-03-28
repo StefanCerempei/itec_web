@@ -1010,7 +1010,11 @@ const handleJoinRoom = async (req, res, next) => {
         }
 
         if (!joiningUser) {
-            return res.status(200).json({ message: 'Joined room as guest (user not found in users table).' });
+            return res.status(200).json({
+                message: 'Joined room as guest (user not found in users table).',
+                roomId,
+                roomCode: room.roomcode || null
+            });
         }
 
         const { error } = await supabase
