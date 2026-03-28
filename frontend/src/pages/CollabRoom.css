@@ -371,14 +371,32 @@
 }
 
 .remote-cursor-line {
-  background: rgba(56, 189, 248, 0.11);
+  transition: background-color 120ms ease;
 }
 
 .remote-cursor-label {
-  color: #7dd3fc;
-  font-size: 0.72rem;
-  font-weight: 600;
-  margin-left: 10px;
+  pointer-events: none;
+}
+
+.remote-cursor-caret {
+  animation: collabCursorBlink 1.1s ease-in-out infinite;
+}
+
+.remote-cursor-initial {
+  pointer-events: none;
+  user-select: none;
+  transform: translateY(-6px);
+  text-transform: uppercase;
+}
+
+@keyframes collabCursorBlink {
+  0%,
+  100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .runner-block h3 {

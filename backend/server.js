@@ -24,10 +24,18 @@ const ROOM_FILES_TABLE = process.env.COLLAB_ROOM_FILES_TABLE || 'roomfiles';
 const EDIT_SNAPSHOTS_TABLE = process.env.COLLAB_EDIT_SNAPSHOTS_TABLE || 'editsnapshots';
 const allowedOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const isDev = process.env.NODE_ENV !== 'production';
+const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    ...(process.env.FRONTEND_URLS || '').split(',')
+]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+const configuredOriginSet = new Set(configuredOrigins);
 
 const isAllowedOrigin = (origin) => {
     if (!origin) return true;
     if (isDev) return true;
+    if (configuredOriginSet.has(origin)) return true;
     return allowedOriginRegex.test(origin);
 };
 
@@ -99,6 +107,8 @@ const serializeMembers = (membersMap) =>
         socketId: m.socketId,
         user: m.user,
         cursor: m.cursor || 0,
+        cursorLine: m.cursorLine || 1,
+        cursorColumn: m.cursorColumn || 1,
         joinedAt: m.joinedAt
     }));
 
@@ -209,6 +219,8 @@ io.on('connection', (socket) => {
             socketId: socket.id,
             user: socket.data.user,
             cursor: 0,
+            cursorLine: 1,
+            cursorColumn: 1,
             joinedAt: new Date().toISOString()
         });
 
@@ -252,6 +264,8 @@ io.on('connection', (socket) => {
         const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
         const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
         const cursor = Number.isInteger(payload.cursor) ? payload.cursor : 0;
+        const cursorLine = Number.isInteger(payload.cursorLine) && payload.cursorLine > 0 ? payload.cursorLine : null;
+        const cursorColumn = Number.isInteger(payload.cursorColumn) && payload.cursorColumn > 0 ? payload.cursorColumn : null;
 
         if (!roomId || !fileId) return;
 
@@ -262,13 +276,19 @@ io.on('connection', (socket) => {
         if (!member) return;
 
         member.cursor = Math.max(0, cursor);
+        if (cursorLine && cursorColumn) {
+            member.cursorLine = cursorLine;
+            member.cursorColumn = cursorColumn;
+        }
 
         socket.to(channel).emit('presence:cursor', {
             roomId,
             fileId,
             socketId: socket.id,
             user: member.user,
-            cursor: member.cursor
+            cursor: member.cursor,
+            cursorLine: member.cursorLine,
+            cursorColumn: member.cursorColumn
         });
     });
 
