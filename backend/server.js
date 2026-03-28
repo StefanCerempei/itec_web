@@ -126,9 +126,9 @@ const serializeMembers = (membersMap) =>
     Array.from(membersMap.values()).map((m) => ({
         socketId: m.socketId,
         user: m.user,
-        cursor: m.cursor || 0,
-        cursorLine: m.cursorLine || 1,
-        cursorColumn: m.cursorColumn || 1,
+        cursor: Number.isInteger(m.cursor) ? m.cursor : null,
+        cursorLine: Number.isInteger(m.cursorLine) ? m.cursorLine : null,
+        cursorColumn: Number.isInteger(m.cursorColumn) ? m.cursorColumn : null,
         joinedAt: m.joinedAt
     }));
 
@@ -290,9 +290,9 @@ io.on('connection', (socket) => {
         room.members.set(socket.id, {
             socketId: socket.id,
             user: socket.data.user,
-            cursor: 0,
-            cursorLine: 1,
-            cursorColumn: 1,
+            cursor: null,
+            cursorLine: null,
+            cursorColumn: null,
             joinedAt: new Date().toISOString()
         });
 
