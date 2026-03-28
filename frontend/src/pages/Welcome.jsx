@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import StartBuildingModal from '../components/StartBuildingModal'
 import './Welcome.css'
 
 const Welcome = () => {
+    const navigate = useNavigate()
     const [isModalOpen, setIsModalOpen] = useState(false)
     const canvasRef = useRef(null)
     const mouseRef = useRef({ x: 0, y: 0 })
