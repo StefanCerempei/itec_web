@@ -648,7 +648,6 @@ function CollabRoom() {
 
       applyingRemoteRef.current = true;
       setContent(model.getValue());
-      setHasUnsavedChanges(true);
     });
 
     socket.on('editor:ack', (payload) => {
@@ -667,7 +666,7 @@ function CollabRoom() {
       replaceEditorContent(payload.content);
       applyingRemoteRef.current = true;
       setContent(payload.content);
-      setHasUnsavedChanges(true);
+      setHasUnsavedChanges(false);
     });
 
     socket.on('ai:status', (payload) => {
