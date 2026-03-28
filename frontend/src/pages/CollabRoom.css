@@ -1,0 +1,196 @@
+.collab-shell {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #080b11 0%, #0f1622 100%);
+  color: #e8eef8;
+  padding: 20px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.collab-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  border: 1px solid #2a3650;
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(15, 22, 34, 0.7);
+}
+
+.collab-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.collab-header p {
+  margin: 4px 0 0;
+  color: #aab8d0;
+}
+
+.language-picker {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.86rem;
+  color: #aab8d0;
+}
+
+.language-picker select {
+  border: 1px solid #3b4b6c;
+  border-radius: 8px;
+  background: #0f1728;
+  color: #dbe7ff;
+  padding: 5px 8px;
+}
+
+.status {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.status-connected {
+  color: #4ade80;
+}
+
+.status-connecting,
+.status-disconnected {
+  color: #fbbf24;
+}
+
+.collab-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.collab-actions button,
+.collab-actions a {
+  border: 1px solid #3b4b6c;
+  border-radius: 8px;
+  background: #111c2f;
+  color: #dbe7ff;
+  text-decoration: none;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.collab-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+}
+
+.presence-panel {
+  border: 1px solid #2a3650;
+  border-radius: 12px;
+  background: rgba(15, 22, 34, 0.7);
+  padding: 14px;
+}
+
+.presence-panel h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.presence-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.presence-panel li {
+  border: 1px solid #354667;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.member-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.member-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(8, 11, 17, 0.75);
+}
+
+.presence-panel small {
+  color: #8ea2c6;
+}
+
+.editor-panel {
+  border: 1px solid #2a3650;
+  border-radius: 12px;
+  background: rgba(15, 22, 34, 0.7);
+  padding: 14px;
+  overflow: hidden;
+}
+
+.editor-panel .monaco-editor,
+.editor-panel .monaco-editor .overflow-guard {
+  border-radius: 10px;
+}
+
+.collab-error {
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.25);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 0 0 12px;
+}
+
+.runner-block {
+  margin-top: 16px;
+  border-top: 1px solid #2a3650;
+  padding-top: 12px;
+}
+
+.runner-block h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #d8e2f4;
+}
+
+.runner-block textarea {
+  width: 100%;
+  min-height: 80px;
+  border: 1px solid #3b4b6c;
+  border-radius: 8px;
+  background: #0f1728;
+  color: #dbe7ff;
+  padding: 8px;
+  resize: vertical;
+  margin-bottom: 10px;
+}
+
+.runner-block pre {
+  margin: 0;
+  border: 1px solid #3b4b6c;
+  border-radius: 8px;
+  background: #0a1323;
+  color: #dbe7ff;
+  padding: 8px;
+  min-height: 120px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 900px) {
+  .collab-body {
+    grid-template-columns: 1fr;
+  }
+}

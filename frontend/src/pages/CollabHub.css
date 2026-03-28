@@ -1,0 +1,71 @@
+.collab-hub-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at top right, #113057 0%, #090f1b 55%, #05070c 100%);
+  color: #e5ecf8;
+  padding: 20px;
+}
+
+.collab-hub-card {
+  width: min(680px, 100%);
+  border: 1px solid #2d3f5f;
+  border-radius: 16px;
+  background: rgba(9, 15, 27, 0.85);
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.collab-hub-card h1 {
+  margin: 0;
+  font-size: 1.7rem;
+}
+
+.collab-hub-card p {
+  margin: 0;
+  color: #9fb0cd;
+}
+
+.hub-form {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #354667;
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(17, 28, 47, 0.65);
+}
+
+.hub-form label {
+  font-size: 0.9rem;
+  color: #c9d8f2;
+}
+
+.hub-form input {
+  border: 1px solid #4f648b;
+  border-radius: 8px;
+  background: #0a1323;
+  color: #e5ecf8;
+  padding: 10px;
+}
+
+.hub-form button,
+.collab-hub-card a {
+  border: 1px solid #4f648b;
+  border-radius: 8px;
+  background: #122341;
+  color: #e5ecf8;
+  text-decoration: none;
+  padding: 10px 12px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.hub-error {
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.25);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 0;
+}
