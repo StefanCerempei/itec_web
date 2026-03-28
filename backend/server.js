@@ -1040,6 +1040,41 @@ const handleJoinRoom = async (req, res, next) => {
 app.post('/api/rooms/:roomId/join', handleJoinRoom);
 app.post('/api/rooms/join', handleJoinRoom);
 
+// Get room metadata for share UX in editor.
+app.get('/api/rooms/:roomId', async (req, res, next) => {
+    try {
+        const roomId = asPositiveInt(req.params.roomId);
+        if (!roomId) {
+            return res.status(400).json({ message: 'Valid roomId is required.' });
+        }
+
+        const { data: room, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash,updatedat')
+            .eq('id', roomId)
+            .maybeSingle();
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        return res.status(200).json({
+            room: {
+                id: room.id,
+                name: room.name,
+                roomCode: room.roomcode || null,
+                passwordProtected: Boolean(room.passwordhash),
+                updatedAt: room.updatedat || null
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 // List files from a room.
 app.get('/api/rooms/:roomId/files', async (req, res, next) => {
     try {

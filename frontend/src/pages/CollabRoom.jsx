@@ -26,6 +26,9 @@ function CollabRoom() {
 
   const [fileId, setFileId] = useState(fileIdParam ? Number(fileIdParam) : null);
   const [filePath, setFilePath] = useState('main.js');
+  const [roomName, setRoomName] = useState('Realtime Room');
+  const [roomCode, setRoomCode] = useState('');
+  const [copyStatus, setCopyStatus] = useState('idle');
   const [language, setLanguage] = useState('javascript');
   const [content, setContent] = useState('');
   const [isFileReady, setIsFileReady] = useState(false);
@@ -1074,11 +1077,62 @@ function CollabRoom() {
     }
   };
 
+  const copyRoomCode = async () => {
+    const codeToCopy = String(roomCode || '').trim();
+    if (!codeToCopy) return;
+
+    try {
+      await navigator.clipboard.writeText(codeToCopy);
+      setCopyStatus('copied');
+      setTimeout(() => setCopyStatus('idle'), 1200);
+    } catch {
+      setCopyStatus('failed');
+      setTimeout(() => setCopyStatus('idle'), 1500);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRoomMeta = async () => {
+      const numericRoomId = Number(roomId);
+      if (!Number.isInteger(numericRoomId) || numericRoomId <= 0) return;
+
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/rooms/${numericRoomId}`);
+        const payload = await res.json();
+        if (!res.ok || cancelled) return;
+
+        setRoomName(payload?.room?.name || `Realtime Room #${numericRoomId}`);
+        setRoomCode(payload?.room?.roomCode || '');
+      } catch {
+        if (cancelled) return;
+        setRoomName(`Realtime Room #${numericRoomId}`);
+      }
+    };
+
+    loadRoomMeta();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, roomId]);
+
   return (
     <div className="collab-shell">
       <header className="collab-header">
         <div>
-          <h1>Realtime Room #{roomId}</h1>
+          <h1>{roomName} #{roomId}</h1>
+          <p className="room-share-row">
+            Share code: <strong>{roomCode || `ID-${roomId}`}</strong>
+            <button
+              type="button"
+              className="room-code-copy-btn"
+              onClick={copyRoomCode}
+              disabled={!roomCode}
+            >
+              {copyStatus === 'copied' ? 'Copied' : copyStatus === 'failed' ? 'Copy failed' : 'Copy'}
+            </button>
+          </p>
           <p>
             File: <strong>{filePath}</strong> ({language})
           </p>
