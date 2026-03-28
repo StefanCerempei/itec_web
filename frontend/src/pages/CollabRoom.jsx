@@ -86,27 +86,88 @@ function CollabRoom() {
     for (let i = 0; i < str.length; i += 1) {
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    return hash;
+    return Math.abs(hash);
   };
 
-  const getCollaboratorPalette = (seed) => {
-    const hash = Math.abs(hashFromSeed(seed));
-    const isGreenFamily = hash % 2 === 0;
-    const baseHue = isGreenFamily ? 146 : 6;
-    const hue = (baseHue + (hash % 42) - 21 + 360) % 360;
+  const COLLABORATOR_PALETTES = [
+    {
+      id: 'amber',
+      dot: 'hsl(44 90% 62%)',
+      lineBg: 'hsla(44 95% 62% / 0.18)',
+      lineBorder: 'hsla(44 98% 72% / 0.52)',
+      labelBg: 'hsla(40 72% 16% / 0.96)',
+      labelText: 'hsl(45 100% 90%)',
+      caret: 'hsl(44 100% 72%)',
+      caretGlow: 'hsla(44 100% 72% / 0.44)',
+    },
+    {
+      id: 'cyan',
+      dot: 'hsl(192 90% 62%)',
+      lineBg: 'hsla(192 95% 62% / 0.18)',
+      lineBorder: 'hsla(192 98% 72% / 0.52)',
+      labelBg: 'hsla(196 76% 14% / 0.96)',
+      labelText: 'hsl(190 100% 90%)',
+      caret: 'hsl(192 100% 72%)',
+      caretGlow: 'hsla(192 100% 72% / 0.44)',
+    },
+    {
+      id: 'rose',
+      dot: 'hsl(345 86% 66%)',
+      lineBg: 'hsla(345 90% 66% / 0.18)',
+      lineBorder: 'hsla(345 94% 74% / 0.54)',
+      labelBg: 'hsla(342 70% 15% / 0.96)',
+      labelText: 'hsl(344 100% 92%)',
+      caret: 'hsl(345 96% 76%)',
+      caretGlow: 'hsla(345 98% 74% / 0.44)',
+    },
+    {
+      id: 'violet',
+      dot: 'hsl(270 88% 68%)',
+      lineBg: 'hsla(270 92% 68% / 0.18)',
+      lineBorder: 'hsla(270 95% 78% / 0.54)',
+      labelBg: 'hsla(272 66% 15% / 0.96)',
+      labelText: 'hsl(274 100% 92%)',
+      caret: 'hsl(270 96% 78%)',
+      caretGlow: 'hsla(270 98% 76% / 0.44)',
+    },
+  ];
 
-    return {
-      dot: `hsl(${hue} 80% 62%)`,
-      lineBg: `hsla(${hue} 85% 58% / 0.2)`,
-      lineBorder: `hsla(${hue} 92% 70% / 0.5)`,
-      labelBg: `hsla(${hue} 58% 16% / 0.95)`,
-      labelText: `hsl(${hue} 95% 88%)`,
-      caret: `hsl(${hue} 92% 74%)`,
-      caretGlow: `hsla(${hue} 95% 72% / 0.42)`,
-    };
+  const getMemberPresenceKey = (member) =>
+    String(
+      member?.socketId ||
+      member?.user?.email ||
+      member?.user?.id ||
+      member?.user?.name ||
+      'collaborator'
+    );
+
+  const memberPaletteIndexMap = useMemo(() => {
+    const normalizedMembers = [...members].sort((a, b) => {
+      const aJoined = Date.parse(a?.joinedAt || '') || 0;
+      const bJoined = Date.parse(b?.joinedAt || '') || 0;
+      if (aJoined !== bJoined) return aJoined - bJoined;
+      return getMemberPresenceKey(a).localeCompare(getMemberPresenceKey(b));
+    });
+
+    const map = new Map();
+    normalizedMembers.forEach((member, index) => {
+      map.set(getMemberPresenceKey(member), index % COLLABORATOR_PALETTES.length);
+    });
+    return map;
+  }, [members]);
+
+  const getCollaboratorPalette = (member) => {
+    const memberKey = getMemberPresenceKey(member);
+    const mappedIndex = memberPaletteIndexMap.get(memberKey);
+
+    if (Number.isInteger(mappedIndex)) {
+      return COLLABORATOR_PALETTES[mappedIndex];
+    }
+
+    // Fallback keeps colors stable if a cursor payload appears before full presence state.
+    const fallbackIndex = hashFromSeed(memberKey) % COLLABORATOR_PALETTES.length;
+    return COLLABORATOR_PALETTES[fallbackIndex];
   };
-
-  const colorFromSeed = (seed) => getCollaboratorPalette(seed).dot;
 
   const buildCollaboratorBadgeText = (member) => {
     const rawName = String(member?.user?.name || '').trim();
@@ -136,18 +197,12 @@ function CollabRoom() {
   };
 
   const ensureCollaboratorClasses = (member) => {
-    const memberSeed =
-      member?.user?.email ||
-      member?.user?.name ||
-      member?.user?.id ||
-      member?.socketId ||
-      'collaborator';
-
-    const cacheKey = String(memberSeed);
+    const memberKey = getMemberPresenceKey(member);
+    const palette = getCollaboratorPalette(member);
+    const cacheKey = `${memberKey}:${palette.id}`;
     const cached = presenceClassCacheRef.current.get(cacheKey);
     if (cached) return cached;
 
-    const palette = getCollaboratorPalette(memberSeed);
     const suffix = `u${nextPresenceStyleIdRef.current}`;
     nextPresenceStyleIdRef.current += 1;
     const lineClass = `remote-cursor-line-${suffix}`;
@@ -928,7 +983,7 @@ function CollabRoom() {
                 <span className="member-label">
                   <span
                     className="member-dot"
-                    style={{ backgroundColor: colorFromSeed(member.user?.email || member.socketId) }}
+                    style={{ backgroundColor: getCollaboratorPalette(member).dot }}
                   />
                   {member.user?.name || 'Unknown'}
                 </span>

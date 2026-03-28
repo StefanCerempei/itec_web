@@ -70,6 +70,7 @@ const collabState = {
 };
 
 const DEFAULT_AI_AGENTS = ['Planner', 'Refactor', 'BugFixer', 'Performance'];
+const MAX_COLLABORATORS_PER_ROOM = 4;
 
 const getAiAgents = () => {
     const modelBackedAgents = (configuredModels || []).map((model, index) => ({
@@ -222,6 +223,13 @@ io.on('connection', (socket) => {
 
         const channel = `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
+
+        if (!room.members.has(socket.id) && room.members.size >= MAX_COLLABORATORS_PER_ROOM) {
+            socket.emit('room:error', {
+                message: `Room is full. Maximum ${MAX_COLLABORATORS_PER_ROOM} collaborators are allowed.`
+            });
+            return;
+        }
 
         // Keep in-memory room state aligned with persisted file content loaded by the first participant.
         if (!room.content && initialContent && initialContent.length > 0) {
