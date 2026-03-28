@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import './Navbar.css'
+import { supabase, hasSupabaseClientConfig } from '../lib/supabaseClient'
 
 const Navbar = () => {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [scrolled, setScrolled] = useState(false)
+    const [isAuthenticated, setIsAuthenticated] = useState(false)
+    const [accountLabel, setAccountLabel] = useState('Account')
     const navigate = useNavigate()
 
     useEffect(() => {
@@ -13,6 +16,39 @@ const Navbar = () => {
         }
         window.addEventListener('scroll', handleScroll)
         return () => window.removeEventListener('scroll', handleScroll)
+    }, [])
+
+    useEffect(() => {
+        const syncAuthState = () => {
+            const token = localStorage.getItem('authToken')
+            const rawUser = localStorage.getItem('authUser')
+
+            setIsAuthenticated(Boolean(token))
+
+            if (!rawUser) {
+                setAccountLabel('Account')
+                return
+            }
+
+            try {
+                const user = JSON.parse(rawUser)
+                const label =
+                    `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
+                    user?.name ||
+                    user?.email ||
+                    user?.user_metadata?.email ||
+                    'Account'
+
+                setAccountLabel(label)
+            } catch {
+                setAccountLabel('Account')
+            }
+        }
+
+        syncAuthState()
+        window.addEventListener('storage', syncAuthState)
+
+        return () => window.removeEventListener('storage', syncAuthState)
     }, [])
 
     const scrollToSection = (sectionId) => {
@@ -42,6 +78,25 @@ const Navbar = () => {
 
     const handleSignUp = () => {
         navigate('/signup')
+        setIsMenuOpen(false)
+    }
+
+    const handleLogout = async () => {
+        localStorage.removeItem('authToken')
+        localStorage.removeItem('authUser')
+        localStorage.removeItem('rememberMe')
+
+        if (hasSupabaseClientConfig && supabase) {
+            try {
+                await supabase.auth.signOut()
+            } catch {
+                // Local sign-out already completed.
+            }
+        }
+
+        setIsAuthenticated(false)
+        setAccountLabel('Account')
+        navigate('/')
         setIsMenuOpen(false)
     }
 
@@ -81,12 +136,25 @@ const Navbar = () => {
                 </div>
 
                 <div className="navbar-buttons-modern">
-                    <button className="btn-login-modern" onClick={handleSignIn}>
-                        Sign In
-                    </button>
-                    <button className="btn-signup-modern" onClick={handleSignUp}>
-                        Get Started
-                    </button>
+                    {isAuthenticated ? (
+                        <>
+                            <button className="btn-login-modern" onClick={handleLogout}>
+                                Log Out
+                            </button>
+                            <button className="btn-signup-modern" onClick={() => navigate('/')}>
+                                {accountLabel}
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button className="btn-login-modern" onClick={handleSignIn}>
+                                Sign In
+                            </button>
+                            <button className="btn-signup-modern" onClick={handleSignUp}>
+                                Get Started
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 <div className="mobile-menu-btn-modern" onClick={() => setIsMenuOpen(!isMenuOpen)}>
