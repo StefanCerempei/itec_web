@@ -1092,18 +1092,17 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
     try {
-        // Test Supabase connection before accepting traffic.
+        // Validate Supabase early, but don't block local startup if it is temporarily unavailable.
         await testSupabaseConnection();
         console.log('Supabase connection OK');
-
-        // Start HTTP server
-        httpServer.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-        });
     } catch (error) {
-        console.error('Unable to start server:', error);
-        process.exit(1);
+        console.warn('Supabase check failed during startup. Server will still start:', error?.message || error);
     }
+
+    // Start HTTP server even when initial Supabase connectivity check fails.
+    httpServer.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
 };
 
 startServer();
