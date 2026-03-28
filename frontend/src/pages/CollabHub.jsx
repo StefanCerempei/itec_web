@@ -14,27 +14,45 @@ function CollabHub() {
         return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
     };
 
+    const stablePositiveIntFromSeed = (seed) => {
+        const str = String(seed || 'guest-user');
+        let hash = 0;
+        for (let i = 0; i < str.length; i += 1) {
+            hash = (hash << 5) - hash + str.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash) + 1;
+    };
+
     const [roomName, setRoomName] = useState('My Realtime Session');
     const [roomIdInput, setRoomIdInput] = useState('');
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
 
     const currentUser = useMemo(() => {
-        const fallback = { id: 1, name: 'Guest User', email: null };
+        const fallback = {
+            id: 'guest-user',
+            numericId: stablePositiveIntFromSeed('guest-user'),
+            name: 'Guest User',
+            email: null,
+        };
         const raw = localStorage.getItem('authUser');
         if (!raw) return fallback;
 
         try {
             const parsed = JSON.parse(raw);
-            const normalizedId = toPositiveInt(parsed?.id) ?? 1;
+            const email = parsed?.email || parsed?.user_metadata?.email || null;
+            const identitySeed = parsed?.id || email || parsed?.name || 'guest-user';
+            const normalizedId = toPositiveInt(parsed?.id) ?? stablePositiveIntFromSeed(identitySeed);
             return {
-                id: normalizedId,
+                id: String(identitySeed),
+                numericId: normalizedId,
                 name:
                     `${parsed?.firstName || ''} ${parsed?.lastName || ''}`.trim() ||
                     parsed?.name ||
-                    parsed?.email ||
+                    email ||
                     'Guest User',
-                email: parsed?.email || parsed?.user_metadata?.email || null,
+                email,
             };
         } catch {
             return fallback;
@@ -46,7 +64,7 @@ function CollabHub() {
             const response = await fetch(`${apiBaseUrl}/api/rooms/${roomId}/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: currentUser.id }),
+                body: JSON.stringify({ userId: currentUser.numericId }),
             });
 
             if (!response.ok) {
@@ -75,7 +93,7 @@ function CollabHub() {
             const res = await fetch(`${apiBaseUrl}/api/rooms`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: trimmed, userId: currentUser.id }),
+                body: JSON.stringify({ name: trimmed, userId: currentUser.numericId }),
             });
 
             const payload = await res.json();

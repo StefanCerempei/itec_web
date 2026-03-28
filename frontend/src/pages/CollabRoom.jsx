@@ -14,6 +14,16 @@ function CollabRoom() {
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   };
 
+  const stablePositiveIntFromSeed = (seed) => {
+    const str = String(seed || 'guest-user');
+    let hash = 0;
+    for (let i = 0; i < str.length; i += 1) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash) + 1;
+  };
+
   const [fileId, setFileId] = useState(fileIdParam ? Number(fileIdParam) : null);
   const [filePath, setFilePath] = useState('main.js');
   const [language, setLanguage] = useState('javascript');
@@ -185,21 +195,29 @@ function CollabRoom() {
   };
 
   const currentUser = useMemo(() => {
-    const fallback = { id: 1, name: 'Guest User', email: null };
+    const fallback = {
+      id: 'guest-user',
+      numericId: stablePositiveIntFromSeed('guest-user'),
+      name: 'Guest User',
+      email: null,
+    };
     const raw = localStorage.getItem('authUser');
     if (!raw) return fallback;
 
     try {
       const parsed = JSON.parse(raw);
-      const normalizedId = toPositiveInt(parsed?.id) ?? 1;
+      const email = parsed?.email || parsed?.user_metadata?.email || null;
+      const identitySeed = parsed?.id || email || parsed?.name || 'guest-user';
+      const normalizedId = toPositiveInt(parsed?.id) ?? stablePositiveIntFromSeed(identitySeed);
       return {
-        id: normalizedId,
+        id: String(identitySeed),
+        numericId: normalizedId,
         name:
           `${parsed?.firstName || ''} ${parsed?.lastName || ''}`.trim() ||
           parsed?.name ||
-          parsed?.email ||
+          email ||
           'Guest User',
-        email: parsed?.email || parsed?.user_metadata?.email || null,
+        email,
       };
     } catch {
       return fallback;
@@ -410,7 +428,7 @@ function CollabRoom() {
             path: 'main.js',
             language: 'javascript',
             content: '',
-            userId: currentUser.id,
+            userId: currentUser.numericId,
           }),
         });
 
@@ -452,7 +470,7 @@ function CollabRoom() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, currentUser.id, fileIdParam, roomId]);
+  }, [apiBaseUrl, currentUser.numericId, fileIdParam, roomId]);
 
   useEffect(() => {
     const numericRoomId = Number(roomId);
@@ -472,7 +490,11 @@ function CollabRoom() {
       socket.emit('room:join', {
         roomId: numericRoomId,
         fileId,
-        user: currentUser,
+        user: {
+          id: currentUser.numericId,
+          name: currentUser.name,
+          email: currentUser.email,
+        },
         initialContent: contentRef.current,
       });
     });
@@ -672,7 +694,7 @@ function CollabRoom() {
           body: JSON.stringify({
             content,
             language,
-            userId: currentUser.id,
+            userId: currentUser.numericId,
           }),
         });
 
@@ -682,7 +704,7 @@ function CollabRoom() {
         const formBody = new URLSearchParams({
           content,
           language,
-          userId: String(currentUser.id),
+          userId: String(currentUser.numericId),
         });
 
         res = await fetch(`${patchUrl}/save`, {
@@ -704,7 +726,7 @@ function CollabRoom() {
             content,
             language,
             source,
-            userId: currentUser.id,
+            userId: currentUser.numericId,
           }),
         });
       }
@@ -833,7 +855,7 @@ function CollabRoom() {
                     style={{ backgroundColor: colorFromSeed(member.user?.email || member.socketId) }}
                   />
                   {member.user?.name || 'Unknown'}
-                  {member.user?.id === currentUser.id ? ' (you)' : ''}
+                  {member.socketId === mySocketIdRef.current ? ' (you)' : ''}
                 </span>
                 <small>cursor {member.cursor ?? 0}</small>
               </li>
