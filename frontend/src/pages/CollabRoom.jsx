@@ -59,6 +59,7 @@ function CollabRoom() {
   const presenceStyleElRef = useRef(null);
   const presenceClassCacheRef = useRef(new Map());
   const nextPresenceStyleIdRef = useRef(1);
+  const disconnectTimerRef = useRef(null);
 
   const inferLanguageFromPath = (pathValue) => {
     const normalized = String(pathValue || '').toLowerCase();
@@ -429,17 +430,6 @@ function CollabRoom() {
     return true;
   };
 
-  const normalizeLeadingBlankLine = (textValue) => {
-    const text = typeof textValue === 'string' ? textValue : '';
-    if (text.startsWith('\r\n') && text.length > 2 && text[2] !== '\r' && text[2] !== '\n') {
-      return text.slice(2);
-    }
-    if (text.startsWith('\n') && text.length > 1 && text[1] !== '\n') {
-      return text.slice(1);
-    }
-    return text;
-  };
-
   useEffect(() => {
     const numericRoomId = Number(roomId);
     roomIdRef.current = Number.isInteger(numericRoomId) && numericRoomId > 0 ? numericRoomId : null;
@@ -481,11 +471,11 @@ function CollabRoom() {
         }
 
         const applyFileState = (file) => {
-          const normalizedContent = normalizeLeadingBlankLine(file.content || '');
+          const nextContent = String(file.content || '');
           setFilePath(file.path || 'main.js');
           setLanguage(file.language || inferLanguageFromPath(file.path));
-          setContent(normalizedContent);
-          contentRef.current = normalizedContent;
+          setContent(nextContent);
+          contentRef.current = nextContent;
           setFileId(file.id);
           setHasUnsavedChanges(false);
           setIsFileReady(true);
@@ -580,6 +570,10 @@ function CollabRoom() {
     setStatus('connecting');
 
     socket.on('connect', () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       mySocketIdRef.current = socket.id;
       setStatus('connected');
       socket.emit('room:join', {
@@ -595,7 +589,13 @@ function CollabRoom() {
     });
 
     socket.on('disconnect', () => {
-      setStatus('disconnected');
+      setStatus('connecting');
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+      }
+      disconnectTimerRef.current = setTimeout(() => {
+        setStatus('disconnected');
+      }, 90000);
     });
 
     socket.on('room:error', (payload) => {
@@ -603,10 +603,10 @@ function CollabRoom() {
     });
 
     socket.on('room:joined', (payload) => {
-      const normalizedContent = normalizeLeadingBlankLine(payload?.content);
-      if (typeof normalizedContent === 'string' && normalizedContent !== content) {
-        replaceEditorContent(normalizedContent);
-        setContent(normalizedContent);
+      const nextContent = typeof payload?.content === 'string' ? payload.content : null;
+      if (typeof nextContent === 'string' && nextContent !== content) {
+        replaceEditorContent(nextContent);
+        setContent(nextContent);
         setHasUnsavedChanges(false);
       }
 
@@ -669,14 +669,13 @@ function CollabRoom() {
 
     socket.on('editor:update', (payload) => {
       if (typeof payload?.content !== 'string') return;
-      const normalizedContent = normalizeLeadingBlankLine(payload.content);
 
       if (Number.isInteger(payload?.revision)) {
         roomRevisionRef.current = payload.revision;
       }
 
-      replaceEditorContent(normalizedContent);
-      setContent(normalizedContent);
+      replaceEditorContent(payload.content);
+      setContent(payload.content);
       setHasUnsavedChanges(false);
     });
 
@@ -732,14 +731,13 @@ function CollabRoom() {
 
     socket.on('editor:resync', (payload) => {
       if (typeof payload?.content !== 'string') return;
-      const normalizedContent = normalizeLeadingBlankLine(payload.content);
 
       if (Number.isInteger(payload?.revision)) {
         roomRevisionRef.current = payload.revision;
       }
 
-      replaceEditorContent(normalizedContent);
-      setContent(normalizedContent);
+      replaceEditorContent(payload.content);
+      setContent(payload.content);
       setHasUnsavedChanges(false);
     });
 
@@ -764,6 +762,10 @@ function CollabRoom() {
     });
 
     return () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       socket.disconnect();
       socketRef.current = null;
       mySocketIdRef.current = null;
