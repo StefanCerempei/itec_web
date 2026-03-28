@@ -485,6 +485,7 @@ function CollabRoom() {
           setFilePath(file.path || 'main.js');
           setLanguage(file.language || inferLanguageFromPath(file.path));
           setContent(normalizedContent);
+          contentRef.current = normalizedContent;
           setFileId(file.id);
           setHasUnsavedChanges(false);
           setIsFileReady(true);
@@ -624,6 +625,12 @@ function CollabRoom() {
         setAiAgents(incomingAgents);
         setSelectedAiAgents((previous) => (previous.length > 0 ? previous : incomingAgents.slice(0, 2)));
       }
+
+      // One-shot hard resync avoids stale/empty payload races for late joiners.
+      socket.emit('editor:resync:request', {
+        roomId: numericRoomId,
+        fileId,
+      });
     });
 
     socket.on('presence:state', (payload) => {
