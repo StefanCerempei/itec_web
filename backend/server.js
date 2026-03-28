@@ -80,8 +80,15 @@ const MAX_COLLABORATORS_PER_ROOM = 4;
 const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
 const pendingMemberRemovals = new Map();
 
-const getUserPresenceKey = (user = {}) =>
-    String(user.id || user.email || user.name || 'unknown-user').trim().toLowerCase();
+const getUserPresenceKey = (user = {}) => {
+    const email = String(user.email || '').trim().toLowerCase();
+    if (email) return `email:${email}`;
+
+    const id = asPositiveInt(user.id);
+    if (id) return `id:${id}`;
+
+    return null;
+};
 
 const getAiAgents = () => {
     const modelBackedAgents = (configuredModels || []).map((model, index) => ({
@@ -259,16 +266,18 @@ io.on('connection', (socket) => {
 
         const reconnectingUserKey = getUserPresenceKey(socket.data.user);
 
-        for (const [existingSocketId, existingMember] of room.members.entries()) {
-            if (existingSocketId === socket.id) continue;
-            if (getUserPresenceKey(existingMember.user) !== reconnectingUserKey) continue;
+        if (reconnectingUserKey) {
+            for (const [existingSocketId, existingMember] of room.members.entries()) {
+                if (existingSocketId === socket.id) continue;
+                if (getUserPresenceKey(existingMember.user) !== reconnectingUserKey) continue;
 
-            room.members.delete(existingSocketId);
+                room.members.delete(existingSocketId);
 
-            const pendingTimer = pendingMemberRemovals.get(existingSocketId);
-            if (pendingTimer) {
-                clearTimeout(pendingTimer);
-                pendingMemberRemovals.delete(existingSocketId);
+                const pendingTimer = pendingMemberRemovals.get(existingSocketId);
+                if (pendingTimer) {
+                    clearTimeout(pendingTimer);
+                    pendingMemberRemovals.delete(existingSocketId);
+                }
             }
         }
 
