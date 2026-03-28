@@ -60,6 +60,24 @@ const collabState = {
     rooms: new Map()
 };
 
+const DEFAULT_AI_AGENTS = ['Planner', 'Refactor', 'BugFixer', 'Performance'];
+
+const getAiAgents = () => {
+    const modelBackedAgents = (configuredModels || []).map((model, index) => ({
+        id: `model-${index + 1}`,
+        label: model,
+        model
+    }));
+
+    if (modelBackedAgents.length > 0) return modelBackedAgents;
+
+    return DEFAULT_AI_AGENTS.map((label, index) => ({
+        id: `default-${index + 1}`,
+        label,
+        model: null
+    }));
+};
+
 const getRoomKey = (roomId, fileId) => `${roomId}:${fileId}`;
 
 const ensureRealtimeRoom = (roomId, fileId) => {
@@ -67,7 +85,9 @@ const ensureRealtimeRoom = (roomId, fileId) => {
     if (!collabState.rooms.has(key)) {
         collabState.rooms.set(key, {
             content: '',
-            members: new Map()
+            members: new Map(),
+            aiBlocks: new Map(),
+            nextAiBlockId: 1
         });
     }
     return collabState.rooms.get(key);
@@ -80,6 +100,39 @@ const serializeMembers = (membersMap) =>
         cursor: m.cursor || 0,
         joinedAt: m.joinedAt
     }));
+
+const serializeAiBlocks = (blocksMap) =>
+    Array.from(blocksMap.values())
+        .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))
+        .slice(0, 40)
+        .map((block) => ({
+            id: block.id,
+            status: block.status,
+            mode: block.mode,
+            prompt: block.prompt,
+            suggestion: block.suggestion,
+            proposedContent: block.proposedContent,
+            baseContent: block.baseContent,
+            agentLabel: block.agentLabel,
+            model: block.model,
+            requestedBy: block.requestedBy,
+            decidedBy: block.decidedBy || null,
+            createdAt: block.createdAt,
+            decidedAt: block.decidedAt || null
+        }));
+
+const clampString = (value, maxLength) => {
+    if (typeof value !== 'string') return '';
+    return value.length > maxLength ? value.slice(0, maxLength) : value;
+};
+
+const buildProposedContent = ({ mode, currentContent, suggestion }) => {
+    if (mode === 'replace') return suggestion;
+    if (!currentContent) return suggestion;
+
+    const separator = currentContent.endsWith('\n') ? '\n' : '\n\n';
+    return `${currentContent}${separator}${suggestion}`;
+};
 
 // Rate limiting
 const limiter = rateLimit({
@@ -126,6 +179,7 @@ io.on('connection', (socket) => {
         const roomId = asPositiveInt(payload.roomId);
         const fileId = asPositiveInt(payload.fileId);
         const user = payload.user || {};
+        const initialContent = typeof payload.initialContent === 'string' ? payload.initialContent : null;
 
         if (!roomId || !fileId) {
             socket.emit('room:error', { message: 'Invalid roomId/fileId.' });
@@ -134,6 +188,11 @@ io.on('connection', (socket) => {
 
         const channel = `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
+
+        // Keep in-memory room state aligned with persisted file content loaded by the first participant.
+        if (!room.content && initialContent && initialContent.length > 0) {
+            room.content = initialContent;
+        }
 
         socket.join(channel);
         socket.data.roomId = roomId;
@@ -156,7 +215,9 @@ io.on('connection', (socket) => {
             roomId,
             fileId,
             content: room.content,
-            members: serializeMembers(room.members)
+            members: serializeMembers(room.members),
+            aiBlocks: serializeAiBlocks(room.aiBlocks),
+            aiAgents: getAiAgents()
         });
 
         io.to(channel).emit('presence:state', {
@@ -208,6 +269,164 @@ io.on('connection', (socket) => {
             user: member.user,
             cursor: member.cursor
         });
+    });
+
+    socket.on('ai:request', async (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+        const prompt = clampString(payload.prompt, 3000).trim();
+        const mode = payload.mode === 'replace' ? 'replace' : 'append';
+        const requestedAgents = Array.isArray(payload.agents) ? payload.agents : [];
+
+        if (!roomId || !fileId || !prompt) {
+            socket.emit('room:error', { message: 'AI request needs roomId, fileId and prompt.' });
+            return;
+        }
+
+        const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
+        const room = ensureRealtimeRoom(roomId, fileId);
+        const currentContent = typeof payload.content === 'string' ? payload.content : room.content;
+        const language = clampString(payload.language || 'plaintext', 30);
+        const userName = socket.data.user?.name || 'Unknown user';
+
+        const availableAgents = getAiAgents();
+        const filteredAgents = requestedAgents
+            .map((agentLabel) => String(agentLabel || '').trim())
+            .filter(Boolean)
+            .map((agentLabel) => {
+                const known = availableAgents.find((candidate) => candidate.label === agentLabel);
+                return known || { id: `custom-${agentLabel}`, label: agentLabel, model: agentLabel };
+            });
+
+        const selectedAgents = (filteredAgents.length > 0 ? filteredAgents : availableAgents).slice(0, 4);
+
+        io.to(channel).emit('ai:status', {
+            roomId,
+            fileId,
+            phase: 'running',
+            requestedBy: socket.data.user || null,
+            agentCount: selectedAgents.length
+        });
+
+        await Promise.allSettled(
+            selectedAgents.map(async (agent) => {
+                const system = [
+                    `You are ${agent.label}, a coding copilot operating in collaborative editor mode.`,
+                    'Return only code with concise comments when useful.',
+                    'Do not include markdown code fences.',
+                    `Language: ${language}.`,
+                    mode === 'replace'
+                        ? 'Produce a full replacement for the existing file.'
+                        : 'Produce a focused patch-style code block that can be appended safely.'
+                ].join(' ');
+
+                const userPrompt = [
+                    `Task: ${prompt}`,
+                    '',
+                    'Current file content:',
+                    currentContent || '(empty file)'
+                ].join('\n');
+
+                try {
+                    const result = await generateText({
+                        prompt: userPrompt,
+                        system,
+                        model: agent.model || undefined,
+                        temperature: 0.2,
+                        maxTokens: 1000
+                    });
+
+                    const suggestion = clampString(result.content, 20000).trim();
+                    if (!suggestion) throw new Error('AI returned empty suggestion.');
+
+                    const blockId = `${Date.now()}-${room.nextAiBlockId}`;
+                    room.nextAiBlockId += 1;
+
+                    const block = {
+                        id: blockId,
+                        status: 'pending',
+                        mode,
+                        prompt,
+                        suggestion,
+                        baseContent: currentContent,
+                        proposedContent: buildProposedContent({
+                            mode,
+                            currentContent,
+                            suggestion
+                        }),
+                        agentLabel: agent.label,
+                        model: result.model || agent.model || null,
+                        requestedBy: socket.data.user || null,
+                        createdAt: new Date().toISOString()
+                    };
+
+                    room.aiBlocks.set(blockId, block);
+
+                    io.to(channel).emit('ai:block:new', {
+                        roomId,
+                        fileId,
+                        block
+                    });
+                } catch (error) {
+                    io.to(channel).emit('ai:block:error', {
+                        roomId,
+                        fileId,
+                        agentLabel: agent.label,
+                        message: error.message || 'Failed to generate suggestion.'
+                    });
+                }
+            })
+        );
+
+        io.to(channel).emit('ai:status', {
+            roomId,
+            fileId,
+            phase: 'idle',
+            requestedBy: socket.data.user || null,
+            message: `AI generation finished for ${userName}.`
+        });
+    });
+
+    socket.on('ai:block:decision', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+        const blockId = String(payload.blockId || '').trim();
+        const decision = payload.decision === 'accept' ? 'accept' : 'reject';
+
+        if (!roomId || !fileId || !blockId) return;
+
+        const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
+        const room = ensureRealtimeRoom(roomId, fileId);
+        const block = room.aiBlocks.get(blockId);
+        if (!block || block.status !== 'pending') return;
+
+        block.status = decision === 'accept' ? 'accepted' : 'rejected';
+        block.decidedBy = socket.data.user || null;
+        block.decidedAt = new Date().toISOString();
+
+        io.to(channel).emit('ai:block:update', {
+            roomId,
+            fileId,
+            block
+        });
+
+        if (decision === 'accept') {
+            room.content = block.proposedContent;
+
+            io.to(channel).emit('editor:update', {
+                roomId,
+                fileId,
+                content: room.content,
+                by: {
+                    id: null,
+                    name: `AI ${block.agentLabel}`,
+                    email: null,
+                    type: 'ai'
+                },
+                at: new Date().toISOString(),
+                source: 'ai-block-accept'
+            });
+        }
     });
 
     socket.on('disconnect', () => {

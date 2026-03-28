@@ -21,9 +21,20 @@ function CollabRoom() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiMode, setAiMode] = useState('append');
+  const [aiStatus, setAiStatus] = useState('idle');
+  const [aiAgents, setAiAgents] = useState([]);
+  const [selectedAiAgents, setSelectedAiAgents] = useState([]);
+  const [aiBlocks, setAiBlocks] = useState([]);
+
   const socketRef = useRef(null);
+  const mySocketIdRef = useRef(null);
   const applyingRemoteRef = useRef(false);
   const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const decorationsRef = useRef([]);
+  const contentRef = useRef('');
 
   const inferLanguageFromPath = (pathValue) => {
     const normalized = String(pathValue || '').toLowerCase();
@@ -76,6 +87,66 @@ function CollabRoom() {
       return fallback;
     }
   }, []);
+
+  const syncRemoteCursorDecorations = () => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+
+    const remoteMembers = members.filter((member) => member.socketId !== mySocketIdRef.current);
+    const nextDecorations = [];
+
+    remoteMembers.forEach((member) => {
+      const rawCursor = Number.isInteger(member.cursor) ? member.cursor : 0;
+      const clampedOffset = Math.max(0, Math.min(rawCursor, model.getValueLength()));
+      const position = model.getPositionAt(clampedOffset);
+      if (!position) return;
+
+      const lineRange = new monaco.Range(
+        position.lineNumber,
+        1,
+        position.lineNumber,
+        model.getLineMaxColumn(position.lineNumber)
+      );
+
+      nextDecorations.push({
+        range: lineRange,
+        options: {
+          isWholeLine: true,
+          className: 'remote-cursor-line',
+          hoverMessage: { value: `${member.user?.name || 'Collaborator'} cursor` },
+        },
+      });
+
+      const labelRange = new monaco.Range(
+        position.lineNumber,
+        position.column,
+        position.lineNumber,
+        position.column
+      );
+
+      nextDecorations.push({
+        range: labelRange,
+        options: {
+          after: {
+            content: ` ${member.user?.name || 'Collaborator'}`,
+            inlineClassName: 'remote-cursor-label',
+          },
+        },
+      });
+    });
+
+    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, nextDecorations);
+  };
+
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+
+  useEffect(() => {
+    syncRemoteCursorDecorations();
+  }, [members]);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +218,27 @@ function CollabRoom() {
       }
     };
 
+    const fetchAiModels = async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/ai/models`);
+        const payload = await res.json();
+        if (!res.ok) return;
+
+        const models = Array.isArray(payload.models)
+          ? payload.models.filter((value) => typeof value === 'string' && value.trim())
+          : [];
+
+        if (cancelled || models.length === 0) return;
+        setAiAgents(models);
+        setSelectedAiAgents(models.slice(0, 2));
+      } catch {
+        // Optional endpoint. Ignore if unavailable.
+      }
+    };
+
     bootstrapFile();
+    fetchAiModels();
+
     return () => {
       cancelled = true;
     };
@@ -166,11 +257,13 @@ function CollabRoom() {
     setStatus('connecting');
 
     socket.on('connect', () => {
+      mySocketIdRef.current = socket.id;
       setStatus('connected');
       socket.emit('room:join', {
         roomId: numericRoomId,
         fileId,
         user: currentUser,
+        initialContent: contentRef.current,
       });
     });
 
@@ -188,11 +281,43 @@ function CollabRoom() {
         setContent(payload.content);
         setHasUnsavedChanges(false);
       }
+
       setMembers(payload.members || []);
+      setAiBlocks(Array.isArray(payload.aiBlocks) ? payload.aiBlocks : []);
+
+      const incomingAgents = Array.isArray(payload.aiAgents)
+        ? payload.aiAgents.map((agent) => agent?.label).filter((label) => typeof label === 'string' && label.trim())
+        : [];
+
+      if (incomingAgents.length > 0) {
+        setAiAgents(incomingAgents);
+        setSelectedAiAgents((previous) => (previous.length > 0 ? previous : incomingAgents.slice(0, 2)));
+      }
     });
 
     socket.on('presence:state', (payload) => {
       setMembers(payload.members || []);
+    });
+
+    socket.on('presence:cursor', (payload) => {
+      if (!payload?.socketId) return;
+
+      setMembers((previousMembers) => {
+        const nextMembers = previousMembers.map((member) =>
+          member.socketId === payload.socketId ? { ...member, cursor: payload.cursor } : member
+        );
+
+        if (nextMembers.some((member) => member.socketId === payload.socketId)) {
+          return nextMembers;
+        }
+
+        return [...nextMembers, {
+          socketId: payload.socketId,
+          user: payload.user,
+          cursor: payload.cursor,
+          joinedAt: new Date().toISOString(),
+        }];
+      });
     });
 
     socket.on('editor:update', (payload) => {
@@ -202,11 +327,38 @@ function CollabRoom() {
       setHasUnsavedChanges(false);
     });
 
+    socket.on('ai:status', (payload) => {
+      setAiStatus(payload?.phase === 'running' ? 'running' : 'idle');
+    });
+
+    socket.on('ai:block:new', (payload) => {
+      if (!payload?.block) return;
+      setAiBlocks((previous) => [payload.block, ...previous]);
+    });
+
+    socket.on('ai:block:update', (payload) => {
+      if (!payload?.block?.id) return;
+      setAiBlocks((previous) => previous.map((block) => (block.id === payload.block.id ? payload.block : block)));
+    });
+
+    socket.on('ai:block:error', (payload) => {
+      const agent = payload?.agentLabel || 'AI';
+      const reason = payload?.message || 'Suggestion failed';
+      setErrorMessage(`${agent}: ${reason}`);
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      mySocketIdRef.current = null;
     };
   }, [apiBaseUrl, currentUser, fileId, roomId]);
+
+  useEffect(() => () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.deltaDecorations(decorationsRef.current, []);
+  }, []);
 
   const emitCursor = () => {
     const socket = socketRef.current;
@@ -243,6 +395,43 @@ function CollabRoom() {
       roomId: Number(roomId),
       fileId,
       content: nextContent,
+    });
+  };
+
+  const requestAiAssistance = () => {
+    const socket = socketRef.current;
+    const prompt = aiPrompt.trim();
+
+    if (!socket) {
+      setErrorMessage('Socket is disconnected. Reconnect to request AI.');
+      return;
+    }
+
+    if (!prompt) {
+      setErrorMessage('Write a prompt before asking AI.');
+      return;
+    }
+
+    socket.emit('ai:request', {
+      roomId: Number(roomId),
+      fileId,
+      prompt,
+      mode: aiMode,
+      agents: selectedAiAgents,
+      content,
+      language,
+    });
+  };
+
+  const decideAiBlock = (blockId, decision) => {
+    const socket = socketRef.current;
+    if (!socket || !blockId) return;
+
+    socket.emit('ai:block:decision', {
+      roomId: Number(roomId),
+      fileId,
+      blockId,
+      decision,
     });
   };
 
@@ -286,6 +475,19 @@ function CollabRoom() {
 
       if (!res.ok) throw new Error(payload?.message || 'Save failed.');
 
+      if (source !== 'autosave') {
+        await fetch(`${patchUrl}/snapshots`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content,
+            language,
+            source,
+            userId: currentUser.id,
+          }),
+        });
+      }
+
       setSaveStatus('saved');
       setHasUnsavedChanges(false);
       setTimeout(() => setSaveStatus('idle'), 900);
@@ -303,7 +505,6 @@ function CollabRoom() {
     if (!fileId || !hasUnsavedChanges) return undefined;
 
     const timer = setTimeout(() => {
-      // Reuse same save endpoint for lightweight autosave.
       saveFile('autosave');
     }, 1200);
 
@@ -354,8 +555,8 @@ function CollabRoom() {
             <select
               id="editorLanguage"
               value={language}
-              onChange={(e) => {
-                setLanguage(e.target.value);
+              onChange={(event) => {
+                setLanguage(event.target.value);
                 setHasUnsavedChanges(true);
               }}
             >
@@ -379,6 +580,7 @@ function CollabRoom() {
           </label>
           <p className={`status status-${status}`}>Socket: {status}</p>
           <p className="status">Autosave: {hasUnsavedChanges ? 'pending' : 'synced'}</p>
+          <p className="status">AI: {aiStatus}</p>
         </div>
 
         <div className="collab-actions">
@@ -421,7 +623,7 @@ function CollabRoom() {
             <h3>Compiler Input</h3>
             <textarea
               value={stdin}
-              onChange={(e) => setStdin(e.target.value)}
+              onChange={(event) => setStdin(event.target.value)}
               placeholder="stdin (optional)"
             />
             <h3>Compiler Output</h3>
@@ -435,8 +637,10 @@ function CollabRoom() {
             theme="vs-dark"
             language={language}
             value={content}
-            onMount={(editorInstance) => {
+            onMount={(editorInstance, monaco) => {
               editorRef.current = editorInstance;
+              monacoRef.current = monaco;
+
               editorInstance.onDidChangeCursorPosition(() => {
                 emitCursor();
               });
@@ -453,6 +657,86 @@ function CollabRoom() {
             }}
           />
         </div>
+
+        <aside className="ai-side-panel">
+          <div className="ai-panel ai-panel-root">
+            <h3>AI Copilot</h3>
+            <textarea
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              placeholder="Describe what AI should change in the file"
+            />
+
+            <label className="ai-control" htmlFor="aiModeSelect">
+              Apply mode
+              <select id="aiModeSelect" value={aiMode} onChange={(event) => setAiMode(event.target.value)}>
+                <option value="append">Append suggestion</option>
+                <option value="replace">Replace file</option>
+              </select>
+            </label>
+
+            <div className="ai-agent-list">
+              {aiAgents.map((agentLabel) => (
+                <label className="ai-agent-item" key={agentLabel}>
+                  <input
+                    type="checkbox"
+                    checked={selectedAiAgents.includes(agentLabel)}
+                    onChange={(event) => {
+                      setSelectedAiAgents((previous) => {
+                        if (event.target.checked) {
+                          return Array.from(new Set([...previous, agentLabel]));
+                        }
+                        return previous.filter((value) => value !== agentLabel);
+                      });
+                    }}
+                  />
+                  <span>{agentLabel}</span>
+                </label>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={requestAiAssistance}
+              disabled={!fileId || status !== 'connected' || aiStatus === 'running'}
+            >
+              {aiStatus === 'running' ? 'Agents working...' : 'Ask AI'}
+            </button>
+
+            <div className="ai-block-list">
+              {aiBlocks.length === 0 ? (
+                <p className="ai-empty">No AI blocks yet.</p>
+              ) : (
+                aiBlocks.map((block) => (
+                  <article className="ai-block" key={block.id}>
+                    <header>
+                      <strong>{block.agentLabel || 'AI agent'}</strong>
+                      <span className={`ai-block-status ai-block-status-${block.status}`}>{block.status}</span>
+                    </header>
+                    <p className="ai-block-meta">mode: {block.mode || 'append'}</p>
+                    <pre>{block.suggestion || ''}</pre>
+                    <div className="ai-block-actions">
+                      <button
+                        type="button"
+                        onClick={() => decideAiBlock(block.id, 'accept')}
+                        disabled={block.status !== 'pending'}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => decideAiBlock(block.id, 'reject')}
+                        disabled={block.status !== 'pending'}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+        </aside>
       </section>
     </div>
   );
