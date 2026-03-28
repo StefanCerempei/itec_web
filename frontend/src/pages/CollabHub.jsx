@@ -98,8 +98,8 @@ function CollabHub() {
       <div className="collab-hub-card">
         <div className="collab-hub-heading">
           <span className="collab-hub-badge">Realtime Workspace</span>
-          <h1>Collaboration Hub</h1>
-          <p>Create a room or jump back in with an ID. Your editor, presence, and AI copilot sync instantly.</p>
+          <h1>Create Session</h1>
+          <p>Start your own collaboration session, then jump straight into your editor with realtime sync.</p>
           <div className="collab-hub-user">Signed in as: <strong>{currentUser.name}</strong></div>
         </div>
 

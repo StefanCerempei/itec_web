@@ -130,9 +130,6 @@ const Navbar = () => {
                     <button className="nav-link-modern" onClick={() => navigate('/pricing')}>
                         Pricing
                     </button>
-                    <button className="nav-link-modern" onClick={() => navigate('/collab')}>
-                        Collab
-                    </button>
                 </div>
 
                 <div className="navbar-buttons-modern">
@@ -141,7 +138,7 @@ const Navbar = () => {
                             <button className="btn-login-modern" onClick={handleLogout}>
                                 Log Out
                             </button>
-                            <button className="btn-signup-modern" onClick={() => navigate('/')}>
+                            <button className="btn-signup-modern" onClick={() => navigate('/create')}>
                                 {accountLabel}
                             </button>
                         </>
