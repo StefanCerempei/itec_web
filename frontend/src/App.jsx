@@ -15,6 +15,7 @@ function App() {
                     <Route path="/" element={<Welcome />} />
                     <Route path="/signin" element={<SignIn />} />
                     <Route path="/signup" element={<SignUp />} />
+                    <Route path="/create" element={<CollabHub />} />
                     <Route path="/collab" element={<CollabHub />} />
                     <Route path="/collab/:roomId" element={<CollabRoom />} />
                     <Route path="/collab/:roomId/:fileId" element={<CollabRoom />} />
