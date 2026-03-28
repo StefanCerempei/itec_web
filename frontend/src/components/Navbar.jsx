@@ -75,8 +75,8 @@ const Navbar = () => {
                     <button className="nav-link-modern" onClick={() => navigate('/pricing')}>
                         Pricing
                     </button>
-                    <button className="nav-link-modern" onClick={() => navigate('/docs')}>
-                        Docs
+                    <button className="nav-link-modern" onClick={() => navigate('/collab')}>
+                        Collab
                     </button>
                 </div>
 

@@ -39,8 +39,8 @@ const StartBuildingModal = ({ isOpen, onClose }) => {
         setTimeout(() => {
             setIsCreating(false)
             onClose()
-            // Here you would navigate to the editor
-            window.location.href = `/editor/${projectName.toLowerCase().replace(/\s/g, '-')}`
+            // On this branch, the active collaborative entrypoint is /collab.
+            window.location.href = '/collab'
         }, 2000)
     }
 

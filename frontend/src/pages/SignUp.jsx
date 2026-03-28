@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import './SignIn.css' // Reutilizăm aceleași stiluri
+import { supabase, hasSupabaseClientConfig } from '../lib/supabaseClient'
+import { API_BASE_URL } from '../lib/apiBaseUrl'
 
 const SignUp = () => {
     const [formData, setFormData] = useState({
@@ -11,6 +13,9 @@ const SignUp = () => {
     })
     const [showPassword, setShowPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
+    const [socialLoading, setSocialLoading] = useState('')
+    const [errorMessage, setErrorMessage] = useState('')
+    const [successMessage, setSuccessMessage] = useState('')
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
     const navigate = useNavigate()
 
@@ -31,25 +36,75 @@ const SignUp = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault()
+        setErrorMessage('')
+        setSuccessMessage('')
 
         if (formData.password !== formData.confirmPassword) {
-            alert("Passwords don't match!")
+            setErrorMessage("Passwords don't match!")
+            return
+        }
+
+        const fullName = formData.name.trim()
+        const [firstName, ...rest] = fullName.split(' ')
+        const lastName = rest.join(' ') || '-'
+
+        if (!firstName) {
+            setErrorMessage('Please enter your full name.')
             return
         }
 
         setIsLoading(true)
 
-        // Simulate API call
-        setTimeout(() => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: formData.email,
+                    password: formData.password,
+                    firstName,
+                    lastName,
+                    role: 'student'
+                })
+            })
+
+            const payload = await response.json()
+            if (!response.ok) {
+                throw new Error(payload.message || 'Sign up failed.')
+            }
+
+            setSuccessMessage('Account created. Redirecting to sign in...')
+            setTimeout(() => navigate('/signin'), 900)
+        } catch (error) {
+            setErrorMessage(error.message || 'Unable to create account.')
+        } finally {
             setIsLoading(false)
-            console.log('Sign up with:', formData)
-            // Navigate to sign in after successful registration
-            navigate('/signin')
-        }, 1500)
+        }
     }
 
-    const handleSocialLogin = (provider) => {
-        console.log(`Sign up with ${provider}`)
+    const handleSocialLogin = async (provider) => {
+        setErrorMessage('')
+
+        if (!hasSupabaseClientConfig || !supabase) {
+            setErrorMessage('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in frontend .env.')
+            return
+        }
+
+        try {
+            setSocialLoading(provider)
+
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider,
+                options: {
+                    redirectTo: `${window.location.origin}/signin`
+                }
+            })
+
+            if (error) throw error
+        } catch (error) {
+            setErrorMessage(error.message || `Unable to continue with ${provider}.`)
+            setSocialLoading('')
+        }
     }
 
     return (
@@ -88,6 +143,8 @@ const SignUp = () => {
                         <button
                             className="social-btn github"
                             onClick={() => handleSocialLogin('github')}
+                            type="button"
+                            disabled={socialLoading === 'github'}
                         >
                             <svg viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.22-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.86 1.23 1.09 1.83 2.83 1.315 3.525.995.105-.78.42-1.315.765-1.615-2.67-.3-5.46-1.335-5.46-5.925 0-1.31.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
@@ -98,6 +155,8 @@ const SignUp = () => {
                         <button
                             className="social-btn google"
                             onClick={() => handleSocialLogin('google')}
+                            type="button"
+                            disabled={socialLoading === 'google'}
                         >
                             <svg viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -107,6 +166,7 @@ const SignUp = () => {
                             </svg>
                             Sign up with Google
                         </button>
+
                     </div>
 
                     <div className="divider">
@@ -115,6 +175,13 @@ const SignUp = () => {
 
                     {/* Sign Up Form */}
                     <form className="signin-form" onSubmit={handleSubmit}>
+                        {errorMessage && (
+                            <p style={{ color: '#f87171', marginBottom: '12px', fontSize: '0.95rem' }}>{errorMessage}</p>
+                        )}
+                        {successMessage && (
+                            <p style={{ color: '#4ade80', marginBottom: '12px', fontSize: '0.95rem' }}>{successMessage}</p>
+                        )}
+
                         <div className="input-group">
                             <label htmlFor="name">Full name</label>
                             <div className="input-wrapper">
