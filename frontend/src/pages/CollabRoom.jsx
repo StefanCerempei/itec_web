@@ -254,11 +254,27 @@ function CollabRoom() {
     return result;
   };
 
+  const getOrCreateGuestSeed = () => {
+    const storageKey = 'collabGuestSeed';
+    const fallbackSeed = `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    try {
+      const existing = localStorage.getItem(storageKey);
+      if (existing && existing.trim()) return existing;
+      localStorage.setItem(storageKey, fallbackSeed);
+      return fallbackSeed;
+    } catch {
+      return fallbackSeed;
+    }
+  };
+
   const currentUser = useMemo(() => {
+    const guestSeed = getOrCreateGuestSeed();
+    const guestTag = guestSeed.replace('guest-', '').slice(0, 6) || 'user';
     const fallback = {
-      id: 'guest-user',
-      numericId: stablePositiveIntFromSeed('guest-user'),
-      name: 'Guest User',
+      id: guestSeed,
+      numericId: stablePositiveIntFromSeed(guestSeed),
+      name: `Guest ${guestTag}`,
       email: null,
     };
     const raw = localStorage.getItem('authUser');
@@ -267,7 +283,7 @@ function CollabRoom() {
     try {
       const parsed = JSON.parse(raw);
       const email = parsed?.email || parsed?.user_metadata?.email || null;
-      const identitySeed = parsed?.id || email || parsed?.name || 'guest-user';
+      const identitySeed = parsed?.id || email || parsed?.name || guestSeed;
       const normalizedId = toPositiveInt(parsed?.id) ?? stablePositiveIntFromSeed(identitySeed);
       return {
         id: String(identitySeed),
