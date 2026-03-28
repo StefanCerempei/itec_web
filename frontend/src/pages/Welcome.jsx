@@ -227,7 +227,7 @@ const Welcome = () => {
                             <div className="step-content">
                                 <div className="step-icon">🎯</div>
                                 <h3>Create Session</h3>
-                                <p>Start a new workspace or join with a shareable link</p>
+                                <p>Start a new workspace or join with a shareable link </p>
                             </div>
                         </div>
                         <div className="workflow-line"></div>
