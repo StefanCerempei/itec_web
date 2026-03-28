@@ -229,6 +229,33 @@ function CollabHub() {
         }
     };
 
+    const handleQuickJoinSession = async (session) => {
+        const token = session?.roomCode || String(session?.id || '').trim();
+        if (!token) {
+            setErrorMessage('This session is missing a valid room token.');
+            return;
+        }
+
+        if (session?.passwordProtected && !joinRoomPassword.trim()) {
+            setRoomJoinToken(token);
+            setErrorMessage('This session is password protected. Enter password, then click Join This Session again.');
+            return;
+        }
+
+        setErrorMessage('');
+        setRoomNotice('');
+        setIsBusy(true);
+        try {
+            await joinRoom({
+                roomToken: token,
+                password: joinRoomPassword,
+            });
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to join room.');
+            setIsBusy(false);
+        }
+    };
+
     return (
         <div className="collab-hub-container">
             <Navbar />
@@ -422,12 +449,10 @@ function CollabHub() {
                                                 </div>
                                                 <button
                                                     type="button"
-                                                    onClick={() => {
-                                                        setRoomJoinToken(session.roomCode || String(session.id));
-                                                        setJoinRoomPassword('');
-                                                    }}
+                                                    onClick={() => handleQuickJoinSession(session)}
+                                                    disabled={isBusy}
                                                 >
-                                                    Use This Session
+                                                    {isBusy ? 'Working...' : 'Join This Session'}
                                                 </button>
                                             </div>
                                         ))}
