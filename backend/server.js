@@ -329,6 +329,22 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('editor:resync:request', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+
+        if (!roomId || !fileId) return;
+
+        const room = ensureRealtimeRoom(roomId, fileId);
+        socket.emit('editor:resync', {
+            roomId,
+            fileId,
+            content: room.content,
+            revision: room.revision || 0,
+            source: 'join-resync'
+        });
+    });
+
     socket.on('presence:cursor', (payload = {}) => {
         const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
         const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
