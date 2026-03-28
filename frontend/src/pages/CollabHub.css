@@ -304,6 +304,17 @@
     animation: shakeError 0.4s ease-out;
 }
 
+.hub-success {
+    border: 1px solid #10b981;
+    color: #a7f3d0;
+    background: rgba(16, 185, 129, 0.14);
+    border-radius: 12px;
+    padding: 0.875rem 1rem;
+    margin: 0;
+    font-size: 0.9rem;
+    backdrop-filter: blur(4px);
+}
+
 @keyframes shakeError {
     0%, 100% { transform: translateX(0); }
     25% { transform: translateX(-5px); }
