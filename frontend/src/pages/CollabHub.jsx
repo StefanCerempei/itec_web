@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../lib/apiBaseUrl';
 import './CollabHub.css';
 
 function CollabHub() {
   const navigate = useNavigate();
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  const apiBaseUrl = API_BASE_URL;
 
   const [roomName, setRoomName] = useState('My Realtime Session');
   const [roomIdInput, setRoomIdInput] = useState('');

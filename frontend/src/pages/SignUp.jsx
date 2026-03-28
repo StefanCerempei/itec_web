@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import './SignIn.css' // Reutilizăm aceleași stiluri
 import { supabase, hasSupabaseClientConfig } from '../lib/supabaseClient'
+import { API_BASE_URL } from '../lib/apiBaseUrl'
 
 const SignUp = () => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-
     const [formData, setFormData] = useState({
         name: '',
         email: '',

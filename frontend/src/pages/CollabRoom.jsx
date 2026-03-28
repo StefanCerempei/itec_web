@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Editor from '@monaco-editor/react';
+import { API_BASE_URL } from '../lib/apiBaseUrl';
 import './CollabRoom.css';
 
 function CollabRoom() {
   const { roomId, fileId: fileIdParam } = useParams();
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  const apiBaseUrl = API_BASE_URL;
 
   const [fileId, setFileId] = useState(fileIdParam ? Number(fileIdParam) : null);
   const [filePath, setFilePath] = useState('main.js');
