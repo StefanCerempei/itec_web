@@ -2,70 +2,173 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at top right, #113057 0%, #090f1b 55%, #05070c 100%);
-  color: #e5ecf8;
-  padding: 20px;
+  background: linear-gradient(135deg, #0a0a14 0%, #050508 100%);
+  color: #fff;
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.collab-hub-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 35%, rgba(102, 126, 234, 0.18) 0%, transparent 65%);
+  filter: blur(42px);
+  pointer-events: none;
 }
 
 .collab-hub-card {
-  width: min(680px, 100%);
-  border: 1px solid #2d3f5f;
-  border-radius: 16px;
-  background: rgba(9, 15, 27, 0.85);
-  padding: 24px;
+  width: min(980px, 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  padding: 28px;
   display: grid;
-  gap: 16px;
+  gap: 20px;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 32px rgba(102, 126, 234, 0.2);
 }
 
-.collab-hub-card h1 {
-  margin: 0;
-  font-size: 1.7rem;
+.collab-hub-heading {
+  display: grid;
+  gap: 10px;
 }
 
-.collab-hub-card p {
+.collab-hub-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.07);
+  color: #b8c9ff;
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+}
+
+.collab-hub-heading h1 {
   margin: 0;
-  color: #9fb0cd;
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  line-height: 1.1;
+  background: linear-gradient(135deg, #fff 0%, #d8ddff 65%, #f3c3ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.collab-hub-heading p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 700px;
+}
+
+.collab-hub-user {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.9rem;
+}
+
+.collab-hub-user strong {
+  color: #fff;
+}
+
+.collab-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .hub-form {
   display: grid;
-  gap: 8px;
-  border: 1px solid #354667;
-  border-radius: 12px;
-  padding: 12px;
-  background: rgba(17, 28, 47, 0.65);
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(13, 18, 31, 0.55);
 }
 
 .hub-form label {
   font-size: 0.9rem;
-  color: #c9d8f2;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .hub-form input {
-  border: 1px solid #4f648b;
-  border-radius: 8px;
-  background: #0a1323;
-  color: #e5ecf8;
-  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(6, 10, 20, 0.7);
+  color: #fff;
+  padding: 0.75rem 0.85rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.hub-form button,
-.collab-hub-card a {
-  border: 1px solid #4f648b;
-  border-radius: 8px;
-  background: #122341;
-  color: #e5ecf8;
-  text-decoration: none;
-  padding: 10px 12px;
+.hub-form input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
+}
+
+.hub-form button {
+  border: none;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  padding: 0.72rem 1rem;
   cursor: pointer;
   width: fit-content;
+  font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.hub-form button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 22px rgba(102, 126, 234, 0.35);
+}
+
+.hub-form button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.collab-hub-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hub-home-link {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  text-decoration: none;
+  padding: 0.72rem 1rem;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.hub-home-link:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
 .hub-error {
   border: 1px solid #7f1d1d;
-  color: #fca5a5;
+  color: #fecaca;
   background: rgba(127, 29, 29, 0.25);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 10px;
+  padding: 10px 12px;
   margin: 0;
+}
+
+@media (max-width: 860px) {
+  .collab-hub-card {
+    padding: 20px;
+  }
+
+  .collab-hub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .collab-hub-footer {
+    justify-content: flex-start;
+  }
 }

@@ -1,9 +1,20 @@
 .collab-shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, #080b11 0%, #0f1622 100%);
+  background: linear-gradient(135deg, #0a0a14 0%, #050508 100%);
   color: #e8eef8;
   padding: 20px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.collab-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 20% 22%, rgba(102, 126, 234, 0.16) 0%, transparent 48%),
+    radial-gradient(circle at 85% 30%, rgba(240, 147, 251, 0.12) 0%, transparent 52%);
+  filter: blur(38px);
+  pointer-events: none;
 }
 
 .collab-header {
@@ -12,10 +23,13 @@
   gap: 16px;
   align-items: flex-start;
   margin-bottom: 16px;
-  border: 1px solid #2a3650;
-  border-radius: 12px;
-  padding: 14px;
-  background: rgba(15, 22, 34, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  position: relative;
+  z-index: 1;
 }
 
 .collab-header h1 {
@@ -25,7 +39,7 @@
 
 .collab-header p {
   margin: 4px 0 0;
-  color: #aab8d0;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .language-picker {
@@ -34,13 +48,13 @@
   align-items: center;
   gap: 8px;
   font-size: 0.86rem;
-  color: #aab8d0;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .language-picker select {
-  border: 1px solid #3b4b6c;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
-  background: #0f1728;
+  background: rgba(6, 10, 20, 0.72);
   color: #dbe7ff;
   padding: 5px 8px;
 }
@@ -51,12 +65,12 @@
 }
 
 .status-connected {
-  color: #4ade80;
+  color: #86efac;
 }
 
 .status-connecting,
 .status-disconnected {
-  color: #fbbf24;
+  color: #fcd34d;
 }
 
 .collab-actions {
@@ -67,13 +81,27 @@
 
 .collab-actions button,
 .collab-actions a {
-  border: 1px solid #3b4b6c;
-  border-radius: 8px;
-  background: #111c2f;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
   color: #dbe7ff;
   text-decoration: none;
   padding: 8px 12px;
   cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.collab-actions button:hover,
+.collab-actions a:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.collab-actions button:first-child,
+.collab-actions button:nth-child(2) {
+  border: none;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 0 22px rgba(102, 126, 234, 0.28);
 }
 
 .collab-body {
@@ -83,10 +111,13 @@
 }
 
 .presence-panel {
-  border: 1px solid #2a3650;
-  border-radius: 12px;
-  background: rgba(15, 22, 34, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
   padding: 14px;
+  position: relative;
+  z-index: 1;
 }
 
 .presence-panel h2 {
@@ -104,7 +135,7 @@
 }
 
 .presence-panel li {
-  border: 1px solid #354667;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   padding: 8px;
   display: flex;
@@ -127,28 +158,35 @@
 }
 
 .presence-panel small {
-  color: #8ea2c6;
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .editor-panel {
-  border: 1px solid #2a3650;
-  border-radius: 12px;
-  background: rgba(15, 22, 34, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
   padding: 14px;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .ai-side-panel {
-  border: 1px solid #2a3650;
-  border-radius: 12px;
-  background: rgba(15, 22, 34, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
   padding: 14px;
   min-height: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .editor-panel .monaco-editor,
 .editor-panel .monaco-editor .overflow-guard {
   border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .collab-error {
@@ -162,13 +200,13 @@
 
 .runner-block {
   margin-top: 16px;
-  border-top: 1px solid #2a3650;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
   padding-top: 12px;
 }
 
 .ai-panel {
   margin-top: 16px;
-  border-top: 1px solid #2a3650;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
   padding-top: 12px;
 }
 
@@ -181,15 +219,15 @@
 .ai-panel h3 {
   margin: 0 0 8px;
   font-size: 0.95rem;
-  color: #d8e2f4;
+  color: #f1f5ff;
 }
 
 .ai-panel textarea {
   width: 100%;
   min-height: 68px;
-  border: 1px solid #3b4b6c;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
-  background: #0f1728;
+  background: rgba(6, 10, 20, 0.72);
   color: #dbe7ff;
   padding: 8px;
   resize: vertical;
@@ -205,9 +243,9 @@
 }
 
 .ai-control select {
-  border: 1px solid #3b4b6c;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
-  background: #0f1728;
+  background: rgba(6, 10, 20, 0.72);
   color: #dbe7ff;
   padding: 6px 8px;
 }
@@ -231,12 +269,16 @@
 
 .ai-panel button {
   margin-top: 10px;
-  border: 1px solid #3b4b6c;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
-  background: #111c2f;
+  background: rgba(255, 255, 255, 0.08);
   color: #dbe7ff;
   padding: 8px 10px;
   cursor: pointer;
+}
+
+.ai-panel button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .ai-panel button:disabled {
@@ -255,13 +297,13 @@
 
 .ai-empty {
   margin: 0;
-  color: #8ea2c6;
+  color: rgba(255, 255, 255, 0.62);
   font-size: 0.82rem;
 }
 
 .ai-block {
-  border: 1px solid #365175;
-  background: #0b1424;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(5, 10, 20, 0.76);
   border-radius: 8px;
   padding: 8px;
 }
@@ -281,9 +323,9 @@
 
 .ai-block pre {
   margin: 0;
-  border: 1px solid #2f4467;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 6px;
-  background: #081020;
+  background: rgba(3, 8, 18, 0.92);
   color: #d9e5ff;
   padding: 8px;
   max-height: 150px;
@@ -342,15 +384,15 @@
 .runner-block h3 {
   margin: 0 0 8px;
   font-size: 0.95rem;
-  color: #d8e2f4;
+  color: #f1f5ff;
 }
 
 .runner-block textarea {
   width: 100%;
   min-height: 80px;
-  border: 1px solid #3b4b6c;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
-  background: #0f1728;
+  background: rgba(6, 10, 20, 0.72);
   color: #dbe7ff;
   padding: 8px;
   resize: vertical;
@@ -359,15 +401,41 @@
 
 .runner-block pre {
   margin: 0;
-  border: 1px solid #3b4b6c;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
-  background: #0a1323;
+  background: rgba(3, 8, 18, 0.92);
   color: #dbe7ff;
   padding: 8px;
   min-height: 120px;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.82rem;
+}
+
+@media (max-width: 1200px) {
+  .collab-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .presence-panel,
+  .ai-side-panel {
+    order: 2;
+  }
+
+  .editor-panel {
+    order: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .collab-header {
+    flex-direction: column;
+  }
+
+  .collab-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 900px) {
