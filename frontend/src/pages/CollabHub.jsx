@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../lib/apiBaseUrl';
 import Navbar from '../components/Navbar';
@@ -31,6 +31,8 @@ function CollabHub() {
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
     const [roomNotice, setRoomNotice] = useState('');
+    const [activeSessions, setActiveSessions] = useState([]);
+    const [isLoadingSessions, setIsLoadingSessions] = useState(true);
 
     const currentUser = useMemo(() => {
         const fallback = {
@@ -61,6 +63,40 @@ function CollabHub() {
             return fallback;
         }
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchActiveSessions = async () => {
+            setIsLoadingSessions(true);
+            try {
+                const res = await fetch(`${apiBaseUrl}/api/rooms/sessions?userId=${encodeURIComponent(currentUser.numericId)}`);
+                const payload = await res.json();
+                if (!res.ok) throw new Error(payload?.message || 'Failed to load active sessions.');
+                if (cancelled) return;
+
+                const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+                setActiveSessions(sessions);
+            } catch {
+                if (cancelled) return;
+                setActiveSessions([]);
+            } finally {
+                if (!cancelled) setIsLoadingSessions(false);
+            }
+        };
+
+        fetchActiveSessions();
+        return () => {
+            cancelled = true;
+        };
+    }, [apiBaseUrl, currentUser.numericId]);
+
+    const formatSessionTime = (value) => {
+        if (!value) return 'Unknown activity';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return 'Unknown activity';
+        return date.toLocaleString();
+    };
 
     const readResponsePayload = async (response) => {
         const rawText = await response.text();
@@ -352,13 +388,51 @@ function CollabHub() {
                                     <span className="info-icon">🟢</span>
                                     <h3>Active Sessions</h3>
                                 </div>
-                                <p className="active-rooms-note">Your recent and active sessions will appear here once you start collaborating.</p>
-                                <div className="rooms-placeholder">
-                                    <div className="placeholder-item">
-                                        <span className="placeholder-icon">🏠</span>
-                                        <span>No active sessions yet. Create or join a room to get started!</span>
+                                <p className="active-rooms-note">Recent rooms you own or joined, including live participant count.</p>
+
+                                {isLoadingSessions ? (
+                                    <div className="rooms-placeholder">
+                                        <div className="placeholder-item">
+                                            <span className="placeholder-icon">⏳</span>
+                                            <span>Loading your sessions...</span>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : activeSessions.length === 0 ? (
+                                    <div className="rooms-placeholder">
+                                        <div className="placeholder-item">
+                                            <span className="placeholder-icon">🏠</span>
+                                            <span>No active sessions yet. Create or join a room to get started!</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="sessions-list">
+                                        {activeSessions.map((session) => (
+                                            <div className="session-card" key={session.id}>
+                                                <div className="session-card-top">
+                                                    <strong>{session.name || `Room ${session.id}`}</strong>
+                                                    <span className={`session-active-chip ${session.activeParticipants > 0 ? 'online' : 'idle'}`}>
+                                                        {session.activeParticipants > 0 ? `${session.activeParticipants} online` : 'idle'}
+                                                    </span>
+                                                </div>
+                                                <div className="session-card-meta">
+                                                    <span>Code: {session.roomCode || '-'}</span>
+                                                    <span>{session.passwordProtected ? 'Password protected' : 'No password'}</span>
+                                                    <span>{session.isOwner ? 'Owner' : 'Member'}</span>
+                                                    <span>Last activity: {formatSessionTime(session.updatedAt)}</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setRoomJoinToken(session.roomCode || String(session.id));
+                                                        setJoinRoomPassword('');
+                                                    }}
+                                                >
+                                                    Use This Session
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
