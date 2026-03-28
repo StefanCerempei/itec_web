@@ -368,6 +368,9 @@ function CollabRoom() {
         member.cursorLine > 0 &&
         Number.isInteger(member.cursorColumn) &&
         member.cursorColumn > 0;
+      const hasOffset = Number.isInteger(member.cursor) && member.cursor >= 0;
+
+      if (!hasLineColumn && !hasOffset) return;
 
       const position = hasLineColumn
         ? {
@@ -378,7 +381,7 @@ function CollabRoom() {
           ),
         }
         : (() => {
-          const rawCursor = Number.isInteger(member.cursor) ? member.cursor : 0;
+          const rawCursor = member.cursor;
           const clampedOffset = Math.max(0, Math.min(rawCursor, model.getValueLength()));
           return model.getPositionAt(clampedOffset);
         })();
@@ -1029,7 +1032,7 @@ function CollabRoom() {
                   />
                   {member.user?.name || 'Unknown'}
                 </span>
-                <small>cursor {member.cursor ?? 0}</small>
+                <small>cursor {Number.isInteger(member.cursor) ? member.cursor : '-'}</small>
               </li>
             ))}
           </ul>
