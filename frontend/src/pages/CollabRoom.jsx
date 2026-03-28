@@ -1095,9 +1095,20 @@ function CollabRoom() {
         }),
       });
 
-      const payload = await res.json();
+      const rawText = await res.text();
+      let payload = null;
+      try {
+        payload = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        payload = null;
+      }
+
       if (!res.ok) {
-        throw new Error(payload?.message || 'Failed to save project.');
+        const isHtmlResponse = typeof rawText === 'string' && rawText.trim().startsWith('<!DOCTYPE');
+        if (res.status === 404 || isHtmlResponse) {
+          throw new Error('Save Project endpoint is not available on the deployed backend yet. Redeploy backend and try again.');
+        }
+        throw new Error(payload?.message || `Failed to save project (${res.status}).`);
       }
 
       setProjectSaveStatus('saved');
