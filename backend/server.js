@@ -1163,6 +1163,7 @@ app.post('/api/projects', async (req, res, next) => {
     try {
         const userKey = normalizeUserKey(req.body?.userKey);
         const userId = asPositiveInt(req.body?.userId);
+        const validUserId = await resolveExistingUserId(userId);
         const roomId = asPositiveInt(req.body?.roomId);
         const title = String(req.body?.title || '').trim();
 
@@ -1189,7 +1190,7 @@ app.post('/api/projects', async (req, res, next) => {
         const now = new Date().toISOString();
         const projectPayload = {
             userkey: userKey,
-            userid: userId,
+            userid: validUserId,
             roomid: roomId,
             title: title || room.name || `Room ${roomId}`,
             updatedat: now,
