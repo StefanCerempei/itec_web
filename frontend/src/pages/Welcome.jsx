@@ -1,9 +1,11 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import StartBuildingModal from '../components/StartBuildingModal'
 import './Welcome.css'
 
 const Welcome = () => {
+    const [isModalOpen, setIsModalOpen] = useState(false)
     const canvasRef = useRef(null)
     const mouseRef = useRef({ x: 0, y: 0 })
 
@@ -128,6 +130,10 @@ const Welcome = () => {
         { value: "24/7", label: "AI Assistance", icon: "🤖" }
     ]
 
+    const handleStartBuilding = () => {
+        setIsModalOpen(true)
+    }
+
     return (
         <div className="welcome-modern">
             <canvas ref={canvasRef} className="particle-canvas" />
@@ -154,18 +160,13 @@ const Welcome = () => {
                     </p>
 
                     <div className="hero-buttons-modern">
-                        <button className="btn-primary-modern">
-                            Start Building Free
+                        <button className="btn-primary-modern" onClick={handleStartBuilding}>
+                            Try Demo
                             <svg className="btn-icon" viewBox="0 0 24 24" fill="none">
                                 <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                             </svg>
                         </button>
-                        <button className="btn-secondary-modern">
-                            Watch Demo
-                            <svg className="btn-icon" viewBox="0 0 24 24" fill="none">
-                                <path d="M5 3L19 12L5 21V3Z" stroke="currentColor" strokeWidth="2" fill="currentColor"/>
-                            </svg>
-                        </button>
+
                     </div>
 
                     <div className="hero-stats-modern">
@@ -183,7 +184,7 @@ const Welcome = () => {
             </section>
 
             {/* Features Section */}
-            <section className="features-modern">
+            <section id="features" className="features-modern">
                 <div className="container">
                     <div className="section-header-modern">
                         <span className="section-badge">Features</span>
@@ -212,7 +213,7 @@ const Welcome = () => {
             </section>
 
             {/* How It Works - Interactive */}
-            <section className="workflow-modern">
+            <section id="how-it-works" className="workflow-modern">
                 <div className="container">
                     <div className="section-header-modern">
                         <span className="section-badge">Workflow</span>
@@ -226,7 +227,7 @@ const Welcome = () => {
                             <div className="step-content">
                                 <div className="step-icon">🎯</div>
                                 <h3>Create Session</h3>
-                                <p>Start a new workspace or join with a shareable link</p>
+                                <p>Start a new workspace or join with a shareable link </p>
                             </div>
                         </div>
                         <div className="workflow-line"></div>
@@ -259,7 +260,7 @@ const Welcome = () => {
                         <h2>Ready to transform your coding experience?</h2>
                         <p>Join the future of collaborative development today</p>
                         <div className="cta-buttons">
-                            <button className="btn-primary-modern btn-large">
+                            <button className="btn-primary-modern btn-large" onClick={handleStartBuilding}>
                                 Get Started Now
                                 <svg className="btn-icon" viewBox="0 0 24 24" fill="none">
                                     <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2"/>
@@ -275,6 +276,12 @@ const Welcome = () => {
             </section>
 
             <Footer />
+
+            {/* Start Building Modal */}
+            <StartBuildingModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+            />
         </div>
     )
 }
