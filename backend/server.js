@@ -1065,41 +1065,6 @@ const handleJoinRoom = async (req, res, next) => {
 app.post('/api/rooms/:roomId/join', handleJoinRoom);
 app.post('/api/rooms/join', handleJoinRoom);
 
-// Get room metadata for share UX in editor.
-app.get('/api/rooms/:roomId', async (req, res, next) => {
-    try {
-        const roomId = asPositiveInt(req.params.roomId);
-        if (!roomId) {
-            return res.status(400).json({ message: 'Valid roomId is required.' });
-        }
-
-        const { data: room, error } = await supabase
-            .from(ROOMS_TABLE)
-            .select('id,name,roomcode,passwordhash,updatedat')
-            .eq('id', roomId)
-            .maybeSingle();
-
-        if (error) {
-            return res.status(400).json({ message: error.message, code: error.code });
-        }
-        if (!room) {
-            return res.status(404).json({ message: 'Room not found.' });
-        }
-
-        return res.status(200).json({
-            room: {
-                id: room.id,
-                name: room.name,
-                roomCode: room.roomcode || null,
-                passwordProtected: Boolean(room.passwordhash),
-                updatedAt: room.updatedat || null
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
 // List user's recent sessions with live participant counts.
 app.get('/api/rooms/sessions', async (req, res, next) => {
     try {
@@ -1136,6 +1101,20 @@ app.get('/api/rooms/sessions', async (req, res, next) => {
             if (id) roomIds.add(id);
         });
 
+        // Include currently active rooms in realtime memory for users that are guests (not persisted in roommembers).
+        for (const [roomKey, roomState] of collabState.rooms.entries()) {
+            const rawRoomId = String(roomKey || '').split(':')[0];
+            const roomId = asPositiveInt(rawRoomId);
+            if (!roomId) continue;
+
+            const hasMatchingLiveMember = Array.from(roomState.members.values()).some(
+                (member) => asPositiveInt(member?.user?.id) === userId
+            );
+            if (hasMatchingLiveMember) {
+                roomIds.add(roomId);
+            }
+        }
+
         if (roomIds.size === 0) {
             return res.status(200).json({ sessions: [] });
         }
@@ -1168,6 +1147,41 @@ app.get('/api/rooms/sessions', async (req, res, next) => {
         });
 
         return res.status(200).json({ sessions });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Get room metadata for share UX in editor.
+app.get('/api/rooms/:roomId(\\d+)', async (req, res, next) => {
+    try {
+        const roomId = asPositiveInt(req.params.roomId);
+        if (!roomId) {
+            return res.status(400).json({ message: 'Valid roomId is required.' });
+        }
+
+        const { data: room, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash,updatedat')
+            .eq('id', roomId)
+            .maybeSingle();
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        return res.status(200).json({
+            room: {
+                id: room.id,
+                name: room.name,
+                roomCode: room.roomcode || null,
+                passwordProtected: Boolean(room.passwordhash),
+                updatedAt: room.updatedat || null
+            }
+        });
     } catch (error) {
         next(error);
     }
