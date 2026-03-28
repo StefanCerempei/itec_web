@@ -22,6 +22,7 @@ const ROOMS_TABLE = process.env.COLLAB_ROOMS_TABLE || 'rooms';
 const ROOM_MEMBERS_TABLE = process.env.COLLAB_ROOM_MEMBERS_TABLE || 'roommembers';
 const ROOM_FILES_TABLE = process.env.COLLAB_ROOM_FILES_TABLE || 'roomfiles';
 const EDIT_SNAPSHOTS_TABLE = process.env.COLLAB_EDIT_SNAPSHOTS_TABLE || 'editsnapshots';
+const SAVED_PROJECTS_TABLE = process.env.COLLAB_SAVED_PROJECTS_TABLE || 'savedprojects';
 const allowedOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const isDev = process.env.NODE_ENV !== 'production';
 const configuredOrigins = [
@@ -712,6 +713,11 @@ const resolveExistingUserId = async (candidateUserId) => {
     return normalized;
 };
 
+const normalizeUserKey = (value) => {
+    const userKey = String(value || '').trim().toLowerCase();
+    return userKey || null;
+};
+
 const generateRoomCode = () => {
     let next = '';
     for (let i = 0; i < ROOM_CODE_LENGTH; i += 1) {
@@ -1147,6 +1153,164 @@ app.get('/api/rooms/sessions', async (req, res, next) => {
         });
 
         return res.status(200).json({ sessions });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Save a room to user's project shelf.
+app.post('/api/projects', async (req, res, next) => {
+    try {
+        const userKey = normalizeUserKey(req.body?.userKey);
+        const userId = asPositiveInt(req.body?.userId);
+        const roomId = asPositiveInt(req.body?.roomId);
+        const title = String(req.body?.title || '').trim();
+
+        if (!userKey) {
+            return res.status(400).json({ message: 'userKey is required.' });
+        }
+        if (!roomId) {
+            return res.status(400).json({ message: 'Valid roomId is required.' });
+        }
+
+        const { data: room, error: roomError } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash,updatedat')
+            .eq('id', roomId)
+            .maybeSingle();
+
+        if (roomError) {
+            return res.status(400).json({ message: roomError.message, code: roomError.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        const now = new Date().toISOString();
+        const projectPayload = {
+            userkey: userKey,
+            userid: userId,
+            roomid: roomId,
+            title: title || room.name || `Room ${roomId}`,
+            updatedat: now,
+            createdat: now,
+        };
+
+        const { data: project, error: projectError } = await supabase
+            .from(SAVED_PROJECTS_TABLE)
+            .upsert(projectPayload, { onConflict: 'userkey,roomid' })
+            .select('*')
+            .single();
+
+        if (projectError) {
+            return res.status(400).json({ message: projectError.message, code: projectError.code });
+        }
+
+        return res.status(201).json({
+            project: {
+                id: project.id,
+                roomId: room.id,
+                roomCode: room.roomcode || null,
+                title: project.title,
+                roomName: room.name,
+                passwordProtected: Boolean(room.passwordhash),
+                updatedAt: project.updatedat || room.updatedat || null,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// List saved projects for a user.
+app.get('/api/projects', async (req, res, next) => {
+    try {
+        const userKey = normalizeUserKey(req.query?.userKey);
+        if (!userKey) {
+            return res.status(400).json({ message: 'userKey query parameter is required.' });
+        }
+
+        const { data: projects, error } = await supabase
+            .from(SAVED_PROJECTS_TABLE)
+            .select('id,roomid,title,updatedat,createdat')
+            .eq('userkey', userKey)
+            .order('updatedat', { ascending: false })
+            .limit(40);
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+
+        const roomIds = (projects || []).map((project) => asPositiveInt(project.roomid)).filter(Boolean);
+        let roomMap = new Map();
+
+        if (roomIds.length > 0) {
+            const { data: rooms, error: roomsError } = await supabase
+                .from(ROOMS_TABLE)
+                .select('id,name,roomcode,passwordhash,updatedat')
+                .in('id', roomIds);
+
+            if (roomsError) {
+                return res.status(400).json({ message: roomsError.message, code: roomsError.code });
+            }
+
+            roomMap = new Map((rooms || []).map((room) => [asPositiveInt(room.id), room]));
+        }
+
+        const result = (projects || [])
+            .map((project) => {
+                const projectRoomId = asPositiveInt(project.roomid);
+                if (!projectRoomId) return null;
+                const room = roomMap.get(projectRoomId);
+                if (!room) return null;
+
+                return {
+                    id: project.id,
+                    roomId: projectRoomId,
+                    roomCode: room.roomcode || null,
+                    title: project.title || room.name || `Room ${projectRoomId}`,
+                    roomName: room.name || `Room ${projectRoomId}`,
+                    passwordProtected: Boolean(room.passwordhash),
+                    updatedAt: project.updatedat || room.updatedat || null,
+                };
+            })
+            .filter(Boolean);
+
+        return res.status(200).json({ projects: result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Remove one saved project bookmark.
+app.delete('/api/projects/:projectId', async (req, res, next) => {
+    try {
+        const projectId = asPositiveInt(req.params.projectId);
+        const userKey = normalizeUserKey(req.query?.userKey);
+
+        if (!projectId) {
+            return res.status(400).json({ message: 'Valid projectId is required.' });
+        }
+        if (!userKey) {
+            return res.status(400).json({ message: 'userKey query parameter is required.' });
+        }
+
+        const { data: removed, error } = await supabase
+            .from(SAVED_PROJECTS_TABLE)
+            .delete()
+            .eq('id', projectId)
+            .eq('userkey', userKey)
+            .select('id')
+            .maybeSingle();
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+        if (!removed) {
+            return res.status(404).json({ message: 'Saved project not found.' });
+        }
+
+        return res.status(200).json({ message: 'Project removed from shelf.' });
     } catch (error) {
         next(error);
     }

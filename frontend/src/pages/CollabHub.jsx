@@ -33,6 +33,8 @@ function CollabHub() {
     const [roomNotice, setRoomNotice] = useState('');
     const [activeSessions, setActiveSessions] = useState([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+    const [savedProjects, setSavedProjects] = useState([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true);
 
     const currentUser = useMemo(() => {
         const fallback = {
@@ -90,6 +92,25 @@ function CollabHub() {
             cancelled = true;
         };
     }, [apiBaseUrl, currentUser.numericId]);
+
+    const fetchSavedProjects = async () => {
+        setIsLoadingProjects(true);
+        try {
+            const res = await fetch(`${apiBaseUrl}/api/projects?userKey=${encodeURIComponent(currentUser.id)}`);
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload?.message || 'Failed to load saved projects.');
+            const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+            setSavedProjects(projects);
+        } catch {
+            setSavedProjects([]);
+        } finally {
+            setIsLoadingProjects(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchSavedProjects();
+    }, [apiBaseUrl, currentUser.id]);
 
     const formatSessionTime = (value) => {
         if (!value) return 'Unknown activity';
@@ -253,6 +274,21 @@ function CollabHub() {
         } catch (error) {
             setErrorMessage(error.message || 'Failed to join room.');
             setIsBusy(false);
+        }
+    };
+
+    const removeSavedProject = async (projectId) => {
+        try {
+            const res = await fetch(
+                `${apiBaseUrl}/api/projects/${projectId}?userKey=${encodeURIComponent(currentUser.id)}`,
+                { method: 'DELETE' }
+            );
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload?.message || 'Failed to remove project.');
+
+            setSavedProjects((previous) => previous.filter((project) => project.id !== projectId));
+        } catch (error) {
+            setErrorMessage(error.message || 'Unable to remove project.');
         }
     };
 
@@ -458,6 +494,57 @@ function CollabHub() {
                                         ))}
                                     </div>
                                 )}
+
+                                <div className="saved-projects-block">
+                                    <h4>Saved Projects</h4>
+                                    {isLoadingProjects ? (
+                                        <div className="rooms-placeholder">
+                                            <div className="placeholder-item">
+                                                <span className="placeholder-icon">⏳</span>
+                                                <span>Loading saved projects...</span>
+                                            </div>
+                                        </div>
+                                    ) : savedProjects.length === 0 ? (
+                                        <div className="rooms-placeholder">
+                                            <div className="placeholder-item">
+                                                <span className="placeholder-icon">📁</span>
+                                                <span>No saved projects yet. Open a room and click Save Project.</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="sessions-list">
+                                            {savedProjects.map((project) => (
+                                                <div className="session-card" key={project.id}>
+                                                    <div className="session-card-top">
+                                                        <strong>{project.title || project.roomName || `Project ${project.id}`}</strong>
+                                                        <span className="session-active-chip idle">saved</span>
+                                                    </div>
+                                                    <div className="session-card-meta">
+                                                        <span>Code: {project.roomCode || '-'}</span>
+                                                        <span>{project.passwordProtected ? 'Password protected' : 'No password'}</span>
+                                                        <span>Last update: {formatSessionTime(project.updatedAt)}</span>
+                                                    </div>
+                                                    <div className="saved-project-actions">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleQuickJoinSession(project)}
+                                                            disabled={isBusy}
+                                                        >
+                                                            {isBusy ? 'Working...' : 'Open Project'}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="danger"
+                                                            onClick={() => removeSavedProject(project.id)}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>

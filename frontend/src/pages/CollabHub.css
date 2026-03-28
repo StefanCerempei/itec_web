@@ -648,6 +648,34 @@
     border-color: rgba(102, 126, 234, 0.5);
 }
 
+.saved-projects-block {
+    margin-top: 1.25rem;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.saved-projects-block h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.saved-project-actions {
+    display: flex;
+    gap: 0.55rem;
+}
+
+.saved-project-actions .danger {
+    border-color: rgba(239, 68, 68, 0.55);
+    background: rgba(239, 68, 68, 0.15);
+    color: #fecaca;
+}
+
+.saved-project-actions .danger:hover {
+    border-color: rgba(248, 113, 113, 0.7);
+    background: rgba(239, 68, 68, 0.24);
+}
+
 .placeholder-item {
     display: flex;
     align-items: center;

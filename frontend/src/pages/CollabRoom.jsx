@@ -38,6 +38,7 @@ function CollabRoom() {
   const [runStatus, setRunStatus] = useState('idle');
   const [status, setStatus] = useState('connecting');
   const [saveStatus, setSaveStatus] = useState('idle');
+  const [projectSaveStatus, setProjectSaveStatus] = useState('idle');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -1077,6 +1078,36 @@ function CollabRoom() {
     }
   };
 
+  const saveProjectToShelf = async () => {
+    const normalizedRoomId = Number(roomId);
+    if (!Number.isInteger(normalizedRoomId) || normalizedRoomId <= 0) return;
+
+    setProjectSaveStatus('saving');
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userKey: currentUser.id,
+          userId: currentUser.numericId,
+          roomId: normalizedRoomId,
+          title: roomName || `Room ${normalizedRoomId}`,
+        }),
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload?.message || 'Failed to save project.');
+      }
+
+      setProjectSaveStatus('saved');
+      setTimeout(() => setProjectSaveStatus('idle'), 1200);
+    } catch (error) {
+      setProjectSaveStatus('idle');
+      setErrorMessage(error.message || 'Unable to save project.');
+    }
+  };
+
   const copyRoomCode = async () => {
     const codeToCopy = String(roomCode || '').trim();
     if (!codeToCopy) return;
@@ -1179,6 +1210,13 @@ function CollabRoom() {
           </button>
           <button type="button" onClick={runCode} disabled={!fileId || runStatus === 'running'}>
             {runStatus === 'running' ? 'Running...' : 'Run'}
+          </button>
+          <button
+            type="button"
+            onClick={saveProjectToShelf}
+            disabled={projectSaveStatus === 'saving'}
+          >
+            {projectSaveStatus === 'saving' ? 'Saving Project...' : projectSaveStatus === 'saved' ? 'Project Saved' : 'Save Project'}
           </button>
           <Link to="/">Back Home</Link>
         </div>
