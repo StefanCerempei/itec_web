@@ -876,6 +876,15 @@ function CollabRoom() {
     socket.on('ai:block:update', (payload) => {
       if (!payload?.block?.id) return;
       setAiBlocks((previous) => previous.map((block) => (block.id === payload.block.id ? payload.block : block)));
+
+      const block = payload.block;
+      if (block?.status !== 'accepted' || typeof block?.proposedContent !== 'string') return;
+
+      const baselineContent = editorRef.current?.getModel()?.getValue() ?? contentRef.current;
+      // Delay slightly so this runs after the corresponding editor:update has been applied.
+      setTimeout(() => {
+        highlightAiChangedLines(baselineContent, block.proposedContent, true);
+      }, 120);
     });
 
     socket.on('ai:block:error', (payload) => {
