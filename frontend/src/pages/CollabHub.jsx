@@ -62,20 +62,63 @@ function CollabHub() {
         }
     }, []);
 
+    const readResponsePayload = async (response) => {
+        const rawText = await response.text();
+        try {
+            return { data: JSON.parse(rawText), rawText };
+        } catch {
+            return { data: null, rawText };
+        }
+    };
+
     const joinRoom = async ({ roomToken, password = '' }) => {
         try {
-            const response = await fetch(`${apiBaseUrl}/api/rooms/join`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomToken, password, userId: currentUser.numericId }),
-            });
-
-            const payload = await response.json();
-            if (!response.ok) {
-                throw new Error(payload.message || 'Failed to join room');
+            const normalizedToken = String(roomToken || '').trim();
+            if (!normalizedToken) {
+                throw new Error('Room ID or room code is required.');
             }
 
-            const roomId = Number(payload.roomId);
+            const primaryResponse = await fetch(`${apiBaseUrl}/api/rooms/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomToken: normalizedToken, password, userId: currentUser.numericId }),
+            });
+
+            const primaryPayload = await readResponsePayload(primaryResponse);
+
+            // Compatibility fallback for environments still running the previous backend route.
+            if (primaryResponse.status === 404) {
+                const fallbackResponse = await fetch(`${apiBaseUrl}/api/rooms/${encodeURIComponent(normalizedToken)}/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password, userId: currentUser.numericId }),
+                });
+
+                const fallbackPayload = await readResponsePayload(fallbackResponse);
+                if (!fallbackResponse.ok) {
+                    const fallbackMessage =
+                        fallbackPayload.data?.message ||
+                        `Join failed (${fallbackResponse.status}).`;
+                    throw new Error(fallbackMessage);
+                }
+
+                const fallbackRoomId = Number(fallbackPayload.data?.roomId || normalizedToken);
+                if (!Number.isInteger(fallbackRoomId) || fallbackRoomId <= 0) {
+                    throw new Error('Joined, but backend did not return a valid room id.');
+                }
+
+                navigate(`/collab/${fallbackRoomId}`);
+                return;
+            }
+
+            if (!primaryResponse.ok) {
+                const primaryMessage =
+                    primaryPayload.data?.message ||
+                    `Join failed (${primaryResponse.status}).`;
+                throw new Error(primaryMessage);
+            }
+
+            const roomId = Number(primaryPayload.data?.roomId);
             if (!Number.isInteger(roomId) || roomId <= 0) {
                 throw new Error('Server did not return a valid room id.');
             }
