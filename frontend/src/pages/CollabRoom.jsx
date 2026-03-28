@@ -50,6 +50,8 @@ function CollabRoom() {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationsRef = useRef([]);
+  const aiDecorationsRef = useRef([]);
+  const aiDecorationTimerRef = useRef(null);
   const cursorWidgetsRef = useRef(new Map());
   const contentRef = useRef('');
   const suppressLocalOpsRef = useRef(false);
@@ -441,6 +443,89 @@ function CollabRoom() {
     return true;
   };
 
+  const clearAiDecorations = () => {
+    const editor = editorRef.current;
+    if (editor) {
+      aiDecorationsRef.current = editor.deltaDecorations(aiDecorationsRef.current, []);
+    } else {
+      aiDecorationsRef.current = [];
+    }
+
+    if (aiDecorationTimerRef.current) {
+      clearTimeout(aiDecorationTimerRef.current);
+      aiDecorationTimerRef.current = null;
+    }
+  };
+
+  const getChangedLineWindow = (beforeText, afterText) => {
+    const beforeLines = String(beforeText || '').split('\n');
+    const afterLines = String(afterText || '').split('\n');
+
+    let startIndex = 0;
+    while (
+      startIndex < beforeLines.length &&
+      startIndex < afterLines.length &&
+      beforeLines[startIndex] === afterLines[startIndex]
+    ) {
+      startIndex += 1;
+    }
+
+    let beforeEnd = beforeLines.length - 1;
+    let afterEnd = afterLines.length - 1;
+    while (
+      beforeEnd >= startIndex &&
+      afterEnd >= startIndex &&
+      beforeLines[beforeEnd] === afterLines[afterEnd]
+    ) {
+      beforeEnd -= 1;
+      afterEnd -= 1;
+    }
+
+    if (afterEnd < startIndex) {
+      return null;
+    }
+
+    return {
+      startLine: startIndex + 1,
+      endLine: afterEnd + 1,
+    };
+  };
+
+  const highlightAiChangedLines = (beforeText, afterText) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+
+    const window = getChangedLineWindow(beforeText, afterText);
+    if (!window) {
+      clearAiDecorations();
+      return;
+    }
+
+    const safeStartLine = Math.max(1, Math.min(window.startLine, model.getLineCount()));
+    const safeEndLine = Math.max(safeStartLine, Math.min(window.endLine, model.getLineCount()));
+
+    aiDecorationsRef.current = editor.deltaDecorations(aiDecorationsRef.current, [
+      {
+        range: new monaco.Range(safeStartLine, 1, safeEndLine, model.getLineMaxColumn(safeEndLine)),
+        options: {
+          isWholeLine: true,
+          className: 'ai-inserted-line',
+          glyphMarginClassName: 'ai-glyph-marker',
+          glyphMarginHoverMessage: { value: 'AI-applied code' },
+        },
+      },
+    ]);
+
+    if (aiDecorationTimerRef.current) {
+      clearTimeout(aiDecorationTimerRef.current);
+    }
+    aiDecorationTimerRef.current = setTimeout(() => {
+      clearAiDecorations();
+    }, 9000);
+  };
+
   useEffect(() => {
     const numericRoomId = Number(roomId);
     roomIdRef.current = Number.isInteger(numericRoomId) && numericRoomId > 0 ? numericRoomId : null;
@@ -456,6 +541,7 @@ function CollabRoom() {
         editorRef.current.removeContentWidget(entry.widget);
       });
     }
+    clearAiDecorations();
     cursorWidgetsRef.current.clear();
 
     if (presenceStyleElRef.current) {
@@ -691,6 +777,8 @@ function CollabRoom() {
     socket.on('editor:update', (payload) => {
       if (typeof payload?.content !== 'string') return;
 
+      const previousContent = editorRef.current?.getModel()?.getValue() ?? contentRef.current;
+
       if (Number.isInteger(payload?.revision)) {
         roomRevisionRef.current = payload.revision;
       }
@@ -698,6 +786,11 @@ function CollabRoom() {
       replaceEditorContent(payload.content);
       setContent(payload.content);
       setHasUnsavedChanges(false);
+
+      const isAiAppliedUpdate = payload?.source === 'ai-block-accept' || payload?.by?.type === 'ai';
+      if (isAiAppliedUpdate) {
+        highlightAiChangedLines(previousContent, payload.content);
+      }
     });
 
     socket.on('editor:op', (payload) => {
@@ -1095,6 +1188,7 @@ function CollabRoom() {
             }}
             options={{
               minimap: { enabled: false },
+              glyphMargin: true,
               fontSize: 14,
               lineNumbersMinChars: 3,
               automaticLayout: true,
