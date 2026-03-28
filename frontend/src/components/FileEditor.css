@@ -1,0 +1,222 @@
+.file-explorer {
+    width: 260px;
+    background: rgba(10, 10, 20, 0.8);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.explorer-header {
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.explorer-header h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.6);
+    margin: 0;
+}
+
+.new-file-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+}
+
+.new-file-btn svg {
+    width: 16px;
+    height: 16px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.new-file-btn:hover {
+    background: rgba(102, 126, 234, 0.3);
+    transform: scale(1.05);
+}
+
+.new-file-btn:hover svg {
+    color: #667eea;
+}
+
+.file-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.file-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.875rem;
+    text-align: left;
+    margin-bottom: 0.25rem;
+}
+
+.file-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    transform: translateX(2px);
+}
+
+.file-item.active {
+    background: rgba(102, 126, 234, 0.2);
+    color: #667eea;
+    border-left: 2px solid #667eea;
+}
+
+.file-icon {
+    font-size: 1rem;
+    min-width: 24px;
+}
+
+.file-name {
+    flex: 1;
+    text-align: left;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Scrollbar styling */
+.file-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.file-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.file-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.file-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(102, 126, 234, 0.5);
+}
+
+/* Animation for new file button */
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+.new-file-btn:active {
+    animation: pulse 0.3s ease;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .file-explorer {
+        width: 220px;
+    }
+
+    .explorer-header {
+        padding: 0.75rem;
+    }
+
+    .explorer-header h3 {
+        font-size: 0.75rem;
+    }
+
+    .file-item {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.75rem;
+    }
+
+    .file-name {
+        font-size: 0.75rem;
+    }
+
+    .file-icon {
+        font-size: 0.875rem;
+        min-width: 20px;
+    }
+}
+
+/* Dark mode enhancements */
+.file-explorer {
+    backdrop-filter: blur(10px);
+}
+
+/* File item context menu style (optional) */
+.file-item:active {
+    transform: scale(0.98);
+}
+
+/* Folder structure style (if you add folders later) */
+.folder-item {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.folder-item .file-icon {
+    color: #fbbf24;
+}
+
+/* Indentation for nested files */
+.file-item.nested {
+    padding-left: 1.5rem;
+}
+
+/* Empty state */
+.file-list-empty {
+    text-align: center;
+    padding: 2rem;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.875rem;
+}
+
+/* Hover effect for active file */
+.file-item.active:hover {
+    background: rgba(102, 126, 234, 0.25);
+}
+
+/* Drag and drop styles (optional) */
+.file-item.dragging {
+    opacity: 0.5;
+    background: rgba(102, 126, 234, 0.3);
+}
+
+.file-item.drag-over {
+    border: 1px dashed #667eea;
+    background: rgba(102, 126, 234, 0.1);
+}
+
+/* Tooltip for file names */
+.file-item:hover .file-name {
+    white-space: normal;
+    word-break: break-all;
+    position: relative;
+    z-index: 10;
+}
