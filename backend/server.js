@@ -79,6 +79,8 @@ const DEFAULT_AI_AGENTS = ['Planner', 'Refactor', 'BugFixer', 'Performance'];
 const MAX_COLLABORATORS_PER_ROOM = 4;
 const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
 const pendingMemberRemovals = new Map();
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ROOM_CODE_LENGTH = 8;
 
 const getUserPresenceKey = (user = {}) => {
     const email = String(user.email || '').trim().toLowerCase();
@@ -710,6 +712,54 @@ const resolveExistingUserId = async (candidateUserId) => {
     return normalized;
 };
 
+const generateRoomCode = () => {
+    let next = '';
+    for (let i = 0; i < ROOM_CODE_LENGTH; i += 1) {
+        const idx = Math.floor(Math.random() * ROOM_CODE_ALPHABET.length);
+        next += ROOM_CODE_ALPHABET[idx];
+    }
+    return next;
+};
+
+const getUniqueRoomCode = async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+        const candidate = generateRoomCode();
+        const { data, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id')
+            .eq('roomcode', candidate)
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return candidate;
+    }
+
+    throw new Error('Unable to generate unique room code. Please try again.');
+};
+
+const resolveRoomFromToken = async (roomToken) => {
+    const normalizedToken = String(roomToken || '').trim();
+    if (!normalizedToken) return { room: null, error: null };
+
+    const numericRoomId = asPositiveInt(normalizedToken);
+    if (numericRoomId) {
+        const { data, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash')
+            .eq('id', numericRoomId)
+            .maybeSingle();
+        return { room: data || null, error: error || null };
+    }
+
+    const code = normalizedToken.toUpperCase();
+    const { data, error } = await supabase
+        .from(ROOMS_TABLE)
+        .select('id,name,roomcode,passwordhash')
+        .eq('roomcode', code)
+        .maybeSingle();
+    return { room: data || null, error: error || null };
+};
+
 // Auth endpoints backed by custom users table.
 // Expected schema uses lowercase Postgres identifiers: users(email, password, firstname, lastname, ...).
 app.post('/api/auth/signup', async (req, res, next) => {
@@ -844,12 +894,20 @@ app.post('/api/auth/signin', async (req, res, next) => {
 // Create a collaboration room.
 app.post('/api/rooms', async (req, res, next) => {
     try {
-        const { name, userId } = req.body || {};
+        const { name, userId, password } = req.body || {};
         const normalizedName = String(name || '').trim();
+        const normalizedPassword = String(password || '').trim();
 
         if (!normalizedName) {
             return res.status(400).json({ message: 'Room name is required.' });
         }
+
+        if (normalizedPassword && normalizedPassword.length < 4) {
+            return res.status(400).json({ message: 'Room password must have at least 4 characters.' });
+        }
+
+        const roomCode = await getUniqueRoomCode();
+        const passwordHash = normalizedPassword ? await bcrypt.hash(normalizedPassword, 10) : null;
 
         let ownerId = asPositiveInt(userId);
 
@@ -874,11 +932,13 @@ app.post('/api/rooms', async (req, res, next) => {
             .from(ROOMS_TABLE)
             .insert({
                 name: normalizedName,
+                roomcode: roomCode,
+                passwordhash: passwordHash,
                 createdby: ownerId || null,
                 createdat: new Date().toISOString(),
                 updatedat: new Date().toISOString()
             })
-            .select('*')
+            .select('id,name,roomcode,createdby,createdat,updatedat')
             .single();
 
         if (roomError) {
@@ -902,18 +962,41 @@ app.post('/api/rooms', async (req, res, next) => {
     }
 });
 
-// Join an existing room.
-app.post('/api/rooms/:roomId/join', async (req, res, next) => {
+const handleJoinRoom = async (req, res, next) => {
     try {
-        const roomId = asPositiveInt(req.params.roomId);
+        const roomToken = req.body?.roomToken || req.params.roomId;
+        const joinPassword = String(req.body?.password || '').trim();
         let userId = asPositiveInt(req.body?.userId);
 
+        if (!roomToken) {
+            return res.status(400).json({ message: 'Room ID or room code is required.' });
+        }
+
+        const { room, error: roomLookupError } = await resolveRoomFromToken(roomToken);
+        if (roomLookupError) {
+            return res.status(400).json({ message: roomLookupError.message, code: roomLookupError.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        const roomId = asPositiveInt(room.id);
         if (!roomId) {
-            return res.status(400).json({ message: 'Valid roomId is required.' });
+            return res.status(400).json({ message: 'Invalid room id.' });
+        }
+
+        if (room.passwordhash) {
+            if (!joinPassword) {
+                return res.status(401).json({ message: 'Room password is required.' });
+            }
+            const passwordMatch = await bcrypt.compare(joinPassword, String(room.passwordhash));
+            if (!passwordMatch) {
+                return res.status(401).json({ message: 'Invalid room password.' });
+            }
         }
 
         if (!userId) {
-            return res.status(200).json({ message: 'Joined room as guest (no userId provided).' });
+            return res.status(200).json({ message: 'Joined room as guest (no userId provided).', roomId, roomCode: room.roomcode || null });
         }
 
         const { data: joiningUser, error: joiningUserLookupError } = await supabase
@@ -943,11 +1026,15 @@ app.post('/api/rooms/:roomId/join', async (req, res, next) => {
             return res.status(400).json({ message: error.message, code: error.code });
         }
 
-        return res.status(200).json({ message: 'Joined room successfully.' });
+        return res.status(200).json({ message: 'Joined room successfully.', roomId, roomCode: room.roomcode || null });
     } catch (error) {
         next(error);
     }
-});
+};
+
+// Join an existing room using numeric ID, or alphanumeric room code in request body.
+app.post('/api/rooms/:roomId/join', handleJoinRoom);
+app.post('/api/rooms/join', handleJoinRoom);
 
 // List files from a room.
 app.get('/api/rooms/:roomId/files', async (req, res, next) => {

@@ -25,9 +25,12 @@ function CollabHub() {
     };
 
     const [roomName, setRoomName] = useState('My Realtime Session');
-    const [roomIdInput, setRoomIdInput] = useState('');
+    const [roomJoinToken, setRoomJoinToken] = useState('');
+    const [createRoomPassword, setCreateRoomPassword] = useState('');
+    const [joinRoomPassword, setJoinRoomPassword] = useState('');
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [roomNotice, setRoomNotice] = useState('');
 
     const currentUser = useMemo(() => {
         const fallback = {
@@ -59,17 +62,22 @@ function CollabHub() {
         }
     }, []);
 
-    const joinRoom = async (roomId) => {
+    const joinRoom = async ({ roomToken, password = '' }) => {
         try {
-            const response = await fetch(`${apiBaseUrl}/api/rooms/${roomId}/join`, {
+            const response = await fetch(`${apiBaseUrl}/api/rooms/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: currentUser.numericId }),
+                body: JSON.stringify({ roomToken, password, userId: currentUser.numericId }),
             });
 
+            const payload = await response.json();
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || 'Failed to join room');
+                throw new Error(payload.message || 'Failed to join room');
+            }
+
+            const roomId = Number(payload.roomId);
+            if (!Number.isInteger(roomId) || roomId <= 0) {
+                throw new Error('Server did not return a valid room id.');
             }
 
             navigate(`/collab/${roomId}`);
@@ -81,6 +89,7 @@ function CollabHub() {
     const createRoom = async (e) => {
         e.preventDefault();
         setErrorMessage('');
+        setRoomNotice('');
 
         const trimmed = roomName.trim();
         if (!trimmed) {
@@ -93,13 +102,25 @@ function CollabHub() {
             const res = await fetch(`${apiBaseUrl}/api/rooms`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: trimmed, userId: currentUser.numericId }),
+                body: JSON.stringify({
+                    name: trimmed,
+                    password: createRoomPassword,
+                    userId: currentUser.numericId,
+                }),
             });
 
             const payload = await res.json();
             if (!res.ok) throw new Error(payload.message || 'Unable to create room.');
 
-            await joinRoom(payload.room.id);
+            const createdRoomCode = String(payload?.room?.roomcode || '').trim();
+            if (createdRoomCode) {
+                setRoomNotice(`Room created. Share this code: ${createdRoomCode}`);
+            }
+
+            await joinRoom({
+                roomToken: payload.room.id,
+                password: createRoomPassword,
+            });
         } catch (error) {
             setErrorMessage(error.message || 'Failed to create room.');
             setIsBusy(false);
@@ -109,16 +130,20 @@ function CollabHub() {
     const handleJoinExisting = async (e) => {
         e.preventDefault();
         setErrorMessage('');
+        setRoomNotice('');
 
-        const roomId = Number(roomIdInput);
-        if (!Number.isInteger(roomId) || roomId <= 0) {
-            setErrorMessage('Enter a valid numeric room id.');
+        const token = roomJoinToken.trim();
+        if (!token) {
+            setErrorMessage('Enter a room ID or room code.');
             return;
         }
 
         setIsBusy(true);
         try {
-            await joinRoom(roomId);
+            await joinRoom({
+                roomToken: token,
+                password: joinRoomPassword,
+            });
         } catch (error) {
             setErrorMessage(error.message || 'Failed to join room.');
             setIsBusy(false);
@@ -142,6 +167,7 @@ function CollabHub() {
                         </div>
 
                         {errorMessage && <p className="hub-error">{errorMessage}</p>}
+                        {roomNotice && <p className="hub-success">{roomNotice}</p>}
 
                         <div className="collab-hub-grid">
                             <form className="hub-form" onSubmit={createRoom}>
@@ -154,19 +180,35 @@ function CollabHub() {
                                     placeholder="Session name"
                                     disabled={isBusy}
                                 />
+                                <input
+                                    id="createRoomPassword"
+                                    type="password"
+                                    value={createRoomPassword}
+                                    onChange={(e) => setCreateRoomPassword(e.target.value)}
+                                    placeholder="Optional room password"
+                                    disabled={isBusy}
+                                />
                                 <button type="submit" disabled={isBusy}>
                                     {isBusy ? 'Working...' : 'Create & Open'}
                                 </button>
                             </form>
 
                             <form className="hub-form" onSubmit={handleJoinExisting}>
-                                <label htmlFor="roomId">Join by room ID</label>
+                                <label htmlFor="roomToken">Join by room ID or code</label>
                                 <input
-                                    id="roomId"
-                                    type="number"
-                                    value={roomIdInput}
-                                    onChange={(e) => setRoomIdInput(e.target.value)}
-                                    placeholder="e.g. 1"
+                                    id="roomToken"
+                                    type="text"
+                                    value={roomJoinToken}
+                                    onChange={(e) => setRoomJoinToken(e.target.value)}
+                                    placeholder="e.g. 12 or AB4K9Q2M"
+                                    disabled={isBusy}
+                                />
+                                <input
+                                    id="joinRoomPassword"
+                                    type="password"
+                                    value={joinRoomPassword}
+                                    onChange={(e) => setJoinRoomPassword(e.target.value)}
+                                    placeholder="Room password (if required)"
                                     disabled={isBusy}
                                 />
                                 <button type="submit" disabled={isBusy}>
@@ -226,14 +268,14 @@ function CollabHub() {
                                         <div className="step-number">1</div>
                                         <div className="step-content">
                                             <strong>Create or Join a Room</strong>
-                                            <p>Start a new session with a custom name or join an existing one using the room ID</p>
+                                            <p>Start a new session with a custom name and optional password, or join with room ID/code</p>
                                         </div>
                                     </div>
                                     <div className="step">
                                         <div className="step-number">2</div>
                                         <div className="step-content">
                                             <strong>Invite Collaborators</strong>
-                                            <p>Share the room ID with team members to invite them to your session</p>
+                                            <p>Share the room code and password (if set) with team members to invite them securely</p>
                                         </div>
                                     </div>
                                     <div className="step">
@@ -254,7 +296,7 @@ function CollabHub() {
                                 </div>
                                 <ul className="tips-list">
                                     <li>🔹 Use descriptive room names to easily identify your sessions</li>
-                                    <li>🔹 Share room IDs securely with your intended collaborators only</li>
+                                    <li>🔹 Prefer sharing room codes instead of raw numeric IDs</li>
                                     <li>🔹 You can join multiple rooms simultaneously in different tabs</li>
                                     <li>🔹 All sessions are automatically saved - never lose your work</li>
                                     <li>🔹 Use the chat feature to communicate with team members in real-time</li>
