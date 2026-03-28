@@ -93,39 +93,49 @@ function CollabHub() {
 
   return (
     <div className="collab-hub-shell">
+      <div className="collab-hub-glow" />
+
       <div className="collab-hub-card">
-        <h1>Collaboration Hub</h1>
-        <p>Create a room or join an existing one. Realtime editor starts instantly.</p>
+        <div className="collab-hub-heading">
+          <span className="collab-hub-badge">Realtime Workspace</span>
+          <h1>Collaboration Hub</h1>
+          <p>Create a room or jump back in with an ID. Your editor, presence, and AI copilot sync instantly.</p>
+          <div className="collab-hub-user">Signed in as: <strong>{currentUser.name}</strong></div>
+        </div>
 
         {errorMessage && <p className="hub-error">{errorMessage}</p>}
 
-        <form className="hub-form" onSubmit={createRoom}>
-          <label htmlFor="roomName">Create room</label>
-          <input
-            id="roomName"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-            placeholder="Session name"
-          />
-          <button type="submit" disabled={isBusy}>
-            {isBusy ? 'Working...' : 'Create & Open'}
-          </button>
-        </form>
+        <div className="collab-hub-grid">
+          <form className="hub-form" onSubmit={createRoom}>
+            <label htmlFor="roomName">Create a new room</label>
+            <input
+              id="roomName"
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              placeholder="Session name"
+            />
+            <button type="submit" disabled={isBusy}>
+              {isBusy ? 'Working...' : 'Create & Open'}
+            </button>
+          </form>
 
-        <form className="hub-form" onSubmit={handleJoinExisting}>
-          <label htmlFor="roomId">Join room by ID</label>
-          <input
-            id="roomId"
-            value={roomIdInput}
-            onChange={(e) => setRoomIdInput(e.target.value)}
-            placeholder="e.g. 1"
-          />
-          <button type="submit" disabled={isBusy}>
-            {isBusy ? 'Working...' : 'Join Room'}
-          </button>
-        </form>
+          <form className="hub-form" onSubmit={handleJoinExisting}>
+            <label htmlFor="roomId">Join by room ID</label>
+            <input
+              id="roomId"
+              value={roomIdInput}
+              onChange={(e) => setRoomIdInput(e.target.value)}
+              placeholder="e.g. 1"
+            />
+            <button type="submit" disabled={isBusy}>
+              {isBusy ? 'Working...' : 'Join Room'}
+            </button>
+          </form>
+        </div>
 
-        <Link to="/">Back Home</Link>
+        <div className="collab-hub-footer">
+          <Link to="/" className="hub-home-link">Back Home</Link>
+        </div>
       </div>
     </div>
   );
