@@ -1031,20 +1031,11 @@ function CollabRoom() {
 
                 if (!socket || !currentRoomId || !currentFileId) return;
 
-                const changes = (event.changes || []).map((change) => ({
-                  rangeOffset: change.rangeOffset,
-                  rangeLength: change.rangeLength,
-                  text: change.text,
-                }));
-
-                if (changes.length === 0) return;
-
-                socket.emit('editor:op', {
+                // Use full-content sync for now to avoid stale offset conflicts during simultaneous typing.
+                socket.emit('editor:update', {
                   roomId: currentRoomId,
                   fileId: currentFileId,
-                  baseRevision: roomRevisionRef.current,
-                  fullContent: latest,
-                  changes,
+                  content: latest,
                 });
               });
             }}
