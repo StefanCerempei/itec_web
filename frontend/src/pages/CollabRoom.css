@@ -42,6 +42,32 @@
   color: rgba(255, 255, 255, 0.72);
 }
 
+.room-share-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.room-code-copy-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbe7ff;
+  font-size: 0.74rem;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.room-code-copy-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.room-code-copy-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .language-picker {
   margin-top: 10px;
   display: inline-flex;
