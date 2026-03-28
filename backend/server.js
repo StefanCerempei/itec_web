@@ -774,13 +774,30 @@ app.post('/api/rooms', async (req, res, next) => {
             return res.status(400).json({ message: 'Room name is required.' });
         }
 
-        const ownerId = asPositiveInt(userId);
+        let ownerId = asPositiveInt(userId);
+
+        if (ownerId) {
+            const { data: owner, error: ownerLookupError } = await supabase
+                .from(USERS_TABLE)
+                .select('id')
+                .eq('id', ownerId)
+                .maybeSingle();
+
+            if (ownerLookupError) {
+                return res.status(400).json({ message: ownerLookupError.message, code: ownerLookupError.code });
+            }
+
+            if (!owner) {
+                // If the auth identity does not exist in USERS_TABLE, keep room creation working.
+                ownerId = null;
+            }
+        }
 
         const { data: room, error: roomError } = await supabase
             .from(ROOMS_TABLE)
             .insert({
                 name: normalizedName,
-                createdby: ownerId,
+                createdby: ownerId || null,
                 createdat: new Date().toISOString(),
                 updatedat: new Date().toISOString()
             })
@@ -812,10 +829,28 @@ app.post('/api/rooms', async (req, res, next) => {
 app.post('/api/rooms/:roomId/join', async (req, res, next) => {
     try {
         const roomId = asPositiveInt(req.params.roomId);
-        const userId = asPositiveInt(req.body?.userId);
+        let userId = asPositiveInt(req.body?.userId);
 
-        if (!roomId || !userId) {
-            return res.status(400).json({ message: 'Valid roomId and userId are required.' });
+        if (!roomId) {
+            return res.status(400).json({ message: 'Valid roomId is required.' });
+        }
+
+        if (!userId) {
+            return res.status(200).json({ message: 'Joined room as guest (no userId provided).' });
+        }
+
+        const { data: joiningUser, error: joiningUserLookupError } = await supabase
+            .from(USERS_TABLE)
+            .select('id')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (joiningUserLookupError) {
+            return res.status(400).json({ message: joiningUserLookupError.message, code: joiningUserLookupError.code });
+        }
+
+        if (!joiningUser) {
+            return res.status(200).json({ message: 'Joined room as guest (user not found in users table).' });
         }
 
         const { error } = await supabase
