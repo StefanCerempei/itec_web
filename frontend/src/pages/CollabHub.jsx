@@ -9,6 +9,11 @@ function CollabHub() {
     const navigate = useNavigate();
     const apiBaseUrl = API_BASE_URL;
 
+    const toPositiveInt = (value) => {
+        const parsed = Number(value);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    };
+
     const [roomName, setRoomName] = useState('My Realtime Session');
     const [roomIdInput, setRoomIdInput] = useState('');
     const [isBusy, setIsBusy] = useState(false);
@@ -21,8 +26,9 @@ function CollabHub() {
 
         try {
             const parsed = JSON.parse(raw);
+            const normalizedId = toPositiveInt(parsed?.id) ?? 1;
             return {
-                id: parsed?.id || 1,
+                id: normalizedId,
                 name:
                     `${parsed?.firstName || ''} ${parsed?.lastName || ''}`.trim() ||
                     parsed?.name ||
