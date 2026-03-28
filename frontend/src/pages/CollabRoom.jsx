@@ -40,7 +40,11 @@ function CollabRoom() {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationsRef = useRef([]);
+  const cursorWidgetsRef = useRef(new Map());
   const contentRef = useRef('');
+  const presenceStyleElRef = useRef(null);
+  const presenceClassCacheRef = useRef(new Map());
+  const nextPresenceStyleIdRef = useRef(1);
 
   const inferLanguageFromPath = (pathValue) => {
     const normalized = String(pathValue || '').toLowerCase();
@@ -63,14 +67,121 @@ function CollabRoom() {
     return 'plaintext';
   };
 
-  const colorFromSeed = (seed) => {
+  const hashFromSeed = (seed) => {
     const str = String(seed || 'member');
     let hash = 0;
     for (let i = 0; i < str.length; i += 1) {
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const hue = Math.abs(hash) % 360;
-    return `hsl(${hue} 75% 60%)`;
+    return hash;
+  };
+
+  const getCollaboratorPalette = (seed) => {
+    const hash = Math.abs(hashFromSeed(seed));
+    const isGreenFamily = hash % 2 === 0;
+    const baseHue = isGreenFamily ? 146 : 6;
+    const hue = (baseHue + (hash % 42) - 21 + 360) % 360;
+
+    return {
+      dot: `hsl(${hue} 80% 62%)`,
+      lineBg: `hsla(${hue} 85% 58% / 0.2)`,
+      lineBorder: `hsla(${hue} 92% 70% / 0.5)`,
+      labelBg: `hsla(${hue} 58% 16% / 0.95)`,
+      labelText: `hsl(${hue} 95% 88%)`,
+      caret: `hsl(${hue} 92% 74%)`,
+      caretGlow: `hsla(${hue} 95% 72% / 0.42)`,
+    };
+  };
+
+  const colorFromSeed = (seed) => getCollaboratorPalette(seed).dot;
+
+  const buildCollaboratorBadgeText = (member) => {
+    const rawName = String(member?.user?.name || '').trim();
+    const rawEmail = String(member?.user?.email || '').trim();
+
+    if (rawName && rawName.toLowerCase() !== 'collaborator' && rawName.toLowerCase() !== 'unknown') {
+      const firstWord = rawName.split(/\s+/)[0] || rawName;
+      return firstWord.length > 12 ? `${firstWord.slice(0, 11)}…` : firstWord;
+    }
+
+    if (rawEmail.includes('@')) {
+      const localPart = rawEmail.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '') || 'user';
+      return localPart.length > 12 ? `${localPart.slice(0, 11)}…` : localPart;
+    }
+
+    return 'Collaborator';
+  };
+
+  const ensurePresenceStyleSheet = () => {
+    if (presenceStyleElRef.current) return presenceStyleElRef.current;
+
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-collab-presence-styles', 'true');
+    document.head.appendChild(styleEl);
+    presenceStyleElRef.current = styleEl;
+    return styleEl;
+  };
+
+  const ensureCollaboratorClasses = (member) => {
+    const memberSeed =
+      member?.user?.email ||
+      member?.user?.name ||
+      member?.user?.id ||
+      member?.socketId ||
+      'collaborator';
+
+    const cacheKey = String(memberSeed);
+    const cached = presenceClassCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+
+    const palette = getCollaboratorPalette(memberSeed);
+    const suffix = `u${nextPresenceStyleIdRef.current}`;
+    nextPresenceStyleIdRef.current += 1;
+    const lineClass = `remote-cursor-line-${suffix}`;
+    const labelClass = `remote-cursor-label-${suffix}`;
+    const caretClass = `remote-cursor-caret-${suffix}`;
+
+    const styleEl = ensurePresenceStyleSheet();
+    styleEl.appendChild(
+      document.createTextNode(`
+        .${lineClass} {
+          background: ${palette.lineBg} !important;
+          border-left: 2px solid ${palette.lineBorder};
+          border-radius: 6px;
+        }
+
+        .${labelClass} {
+          display: inline-block;
+          color: ${palette.labelText};
+          background: ${palette.labelBg};
+          border: 1px solid ${palette.lineBorder};
+          box-shadow: 0 6px 16px ${palette.caretGlow};
+          border-radius: 999px;
+          padding: 2px 7px;
+          margin-left: 8px;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          line-height: 1;
+          white-space: nowrap;
+        }
+
+        .${caretClass} {
+          display: inline-block;
+          width: 2px;
+          height: 1.15em;
+          margin-right: 1px;
+          border-radius: 999px;
+          vertical-align: text-top;
+          background: ${palette.caret};
+          box-shadow: 0 0 10px ${palette.caretGlow};
+        }
+      `)
+    );
+
+    const result = { lineClass, labelClass, caretClass };
+    presenceClassCacheRef.current.set(cacheKey, result);
+    return result;
   };
 
   const currentUser = useMemo(() => {
@@ -103,11 +214,80 @@ function CollabRoom() {
 
     const remoteMembers = members.filter((member) => member.socketId !== mySocketIdRef.current);
     const nextDecorations = [];
+    const nextWidgetIds = new Set();
+
+    const upsertCursorWidget = ({ member, position, labelClass, initial }) => {
+      const widgetId = `collab-cursor-widget-${member.socketId}`;
+      nextWidgetIds.add(widgetId);
+
+      const existing = cursorWidgetsRef.current.get(widgetId);
+      if (existing) {
+        existing.node.className = `remote-cursor-initial ${labelClass}`;
+        existing.node.textContent = initial;
+        existing.setPosition(position);
+        editor.layoutContentWidget(existing.widget);
+        return;
+      }
+
+      const node = document.createElement('div');
+      node.className = `remote-cursor-initial ${labelClass}`;
+      node.textContent = initial;
+
+      let currentPosition = position;
+      const widget = {
+        getId: () => widgetId,
+        getDomNode: () => node,
+        getPosition: () => ({
+          position: currentPosition,
+          preference: [monaco.editor.ContentWidgetPositionPreference.ABOVE],
+        }),
+        allowEditorOverflow: true,
+        suppressMouseDown: true,
+      };
+
+      const setPosition = (nextPosition) => {
+        currentPosition = nextPosition;
+      };
+
+      editor.addContentWidget(widget);
+      cursorWidgetsRef.current.set(widgetId, {
+        widget,
+        node,
+        setPosition,
+      });
+    };
+
+    const pruneStaleCursorWidgets = () => {
+      cursorWidgetsRef.current.forEach((entry, widgetId) => {
+        if (nextWidgetIds.has(widgetId)) return;
+        editor.removeContentWidget(entry.widget);
+        cursorWidgetsRef.current.delete(widgetId);
+      });
+    };
 
     remoteMembers.forEach((member) => {
-      const rawCursor = Number.isInteger(member.cursor) ? member.cursor : 0;
-      const clampedOffset = Math.max(0, Math.min(rawCursor, model.getValueLength()));
-      const position = model.getPositionAt(clampedOffset);
+      const collaboratorClasses = ensureCollaboratorClasses(member);
+      const collaboratorName = member.user?.name || 'Collaborator';
+      const collaboratorBadgeText = buildCollaboratorBadgeText(member);
+      const hasLineColumn =
+        Number.isInteger(member.cursorLine) &&
+        member.cursorLine > 0 &&
+        Number.isInteger(member.cursorColumn) &&
+        member.cursorColumn > 0;
+
+      const position = hasLineColumn
+        ? {
+          lineNumber: Math.min(member.cursorLine, model.getLineCount()),
+          column: Math.min(
+            member.cursorColumn,
+            model.getLineMaxColumn(Math.min(member.cursorLine, model.getLineCount()))
+          ),
+        }
+        : (() => {
+          const rawCursor = Number.isInteger(member.cursor) ? member.cursor : 0;
+          const clampedOffset = Math.max(0, Math.min(rawCursor, model.getValueLength()));
+          return model.getPositionAt(clampedOffset);
+        })();
       if (!position) return;
 
       const lineRange = new monaco.Range(
@@ -121,8 +301,8 @@ function CollabRoom() {
         range: lineRange,
         options: {
           isWholeLine: true,
-          className: 'remote-cursor-line',
-          hoverMessage: { value: `${member.user?.name || 'Collaborator'} cursor` },
+          className: collaboratorClasses.lineClass,
+          hoverMessage: { value: `${collaboratorName} cursor` },
         },
       });
 
@@ -136,20 +316,43 @@ function CollabRoom() {
       nextDecorations.push({
         range: labelRange,
         options: {
-          after: {
-            content: ` ${member.user?.name || 'Collaborator'}`,
-            inlineClassName: 'remote-cursor-label',
+          before: {
+            content: ' ',
+            inlineClassName: collaboratorClasses.caretClass,
           },
         },
+      });
+
+      upsertCursorWidget({
+        member,
+        position,
+        labelClass: collaboratorClasses.labelClass,
+        initial: collaboratorBadgeText,
       });
     });
 
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, nextDecorations);
+    pruneStaleCursorWidgets();
   };
 
   useEffect(() => {
     contentRef.current = content;
   }, [content]);
+
+  useEffect(() => () => {
+    if (editorRef.current) {
+      cursorWidgetsRef.current.forEach((entry) => {
+        editorRef.current.removeContentWidget(entry.widget);
+      });
+    }
+    cursorWidgetsRef.current.clear();
+
+    if (presenceStyleElRef.current) {
+      presenceStyleElRef.current.remove();
+      presenceStyleElRef.current = null;
+    }
+    presenceClassCacheRef.current.clear();
+  }, []);
 
   useEffect(() => {
     syncRemoteCursorDecorations();
@@ -311,7 +514,14 @@ function CollabRoom() {
 
       setMembers((previousMembers) => {
         const nextMembers = previousMembers.map((member) =>
-          member.socketId === payload.socketId ? { ...member, cursor: payload.cursor } : member
+          member.socketId === payload.socketId
+            ? {
+              ...member,
+              cursor: payload.cursor,
+              cursorLine: payload.cursorLine,
+              cursorColumn: payload.cursorColumn,
+            }
+            : member
         );
 
         if (nextMembers.some((member) => member.socketId === payload.socketId)) {
@@ -322,6 +532,8 @@ function CollabRoom() {
           socketId: payload.socketId,
           user: payload.user,
           cursor: payload.cursor,
+          cursorLine: payload.cursorLine,
+          cursorColumn: payload.cursorColumn,
           joinedAt: new Date().toISOString(),
         }];
       });
@@ -382,6 +594,8 @@ function CollabRoom() {
       roomId: Number(roomId),
       fileId,
       cursor: offset || 0,
+      cursorLine: position.lineNumber,
+      cursorColumn: position.column,
     });
   };
 
