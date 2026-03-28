@@ -491,20 +491,24 @@ function CollabRoom() {
     };
   };
 
-  const highlightAiChangedLines = (beforeText, afterText) => {
+  const highlightAiChangedLines = (beforeText, afterText, forceFallbackWindow = false) => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     const model = editor?.getModel();
     if (!editor || !monaco || !model) return;
 
     const window = getChangedLineWindow(beforeText, afterText);
-    if (!window) {
+    const fallbackLine = editor.getPosition()?.lineNumber || 1;
+    const startLineCandidate = window?.startLine || (forceFallbackWindow ? fallbackLine : null);
+    const endLineCandidate = window?.endLine || (forceFallbackWindow ? fallbackLine : null);
+
+    if (!startLineCandidate || !endLineCandidate) {
       clearAiDecorations();
       return;
     }
 
-    const safeStartLine = Math.max(1, Math.min(window.startLine, model.getLineCount()));
-    const safeEndLine = Math.max(safeStartLine, Math.min(window.endLine, model.getLineCount()));
+    const safeStartLine = Math.max(1, Math.min(startLineCandidate, model.getLineCount()));
+    const safeEndLine = Math.max(safeStartLine, Math.min(endLineCandidate, model.getLineCount()));
 
     aiDecorationsRef.current = editor.deltaDecorations(aiDecorationsRef.current, [
       {
@@ -512,6 +516,7 @@ function CollabRoom() {
         options: {
           isWholeLine: true,
           className: 'ai-inserted-line',
+          linesDecorationsClassName: 'ai-line-decoration',
           glyphMarginClassName: 'ai-glyph-marker',
           glyphMarginHoverMessage: { value: 'AI-applied code' },
         },
@@ -787,9 +792,13 @@ function CollabRoom() {
       setContent(payload.content);
       setHasUnsavedChanges(false);
 
-      const isAiAppliedUpdate = payload?.source === 'ai-block-accept' || payload?.by?.type === 'ai';
+      const actorName = String(payload?.by?.name || '').toLowerCase();
+      const isAiAppliedUpdate =
+        payload?.source === 'ai-block-accept' ||
+        payload?.by?.type === 'ai' ||
+        actorName.startsWith('ai ');
       if (isAiAppliedUpdate) {
-        highlightAiChangedLines(previousContent, payload.content);
+        highlightAiChangedLines(previousContent, payload.content, true);
       }
     });
 
