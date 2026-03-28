@@ -9,6 +9,11 @@ function CollabRoom() {
   const { roomId, fileId: fileIdParam } = useParams();
   const apiBaseUrl = API_BASE_URL;
 
+  const toPositiveInt = (value) => {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  };
+
   const [fileId, setFileId] = useState(fileIdParam ? Number(fileIdParam) : null);
   const [filePath, setFilePath] = useState('main.js');
   const [language, setLanguage] = useState('javascript');
@@ -75,8 +80,9 @@ function CollabRoom() {
 
     try {
       const parsed = JSON.parse(raw);
+      const normalizedId = toPositiveInt(parsed?.id) ?? 1;
       return {
-        id: parsed?.id || 1,
+        id: normalizedId,
         name:
           `${parsed?.firstName || ''} ${parsed?.lastName || ''}`.trim() ||
           parsed?.name ||

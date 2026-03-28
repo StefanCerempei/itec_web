@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
+const path = require('path');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -10,7 +11,7 @@ const { spawn } = require('child_process');
 const { Server } = require('socket.io');
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // Import Supabase client
 const { supabase, testSupabaseConnection } = require('./config/supabase');
