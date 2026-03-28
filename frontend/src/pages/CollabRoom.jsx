@@ -52,6 +52,9 @@ function CollabRoom() {
   const decorationsRef = useRef([]);
   const cursorWidgetsRef = useRef(new Map());
   const contentRef = useRef('');
+  const suppressLocalOpsRef = useRef(false);
+  const roomIdRef = useRef(null);
+  const fileIdRef = useRef(null);
   const presenceStyleElRef = useRef(null);
   const presenceClassCacheRef = useRef(new Map());
   const nextPresenceStyleIdRef = useRef(1);
@@ -357,6 +360,15 @@ function CollabRoom() {
     contentRef.current = content;
   }, [content]);
 
+  useEffect(() => {
+    const numericRoomId = Number(roomId);
+    roomIdRef.current = Number.isInteger(numericRoomId) && numericRoomId > 0 ? numericRoomId : null;
+  }, [roomId]);
+
+  useEffect(() => {
+    fileIdRef.current = fileId;
+  }, [fileId]);
+
   useEffect(() => () => {
     if (editorRef.current) {
       cursorWidgetsRef.current.forEach((entry) => {
@@ -568,6 +580,48 @@ function CollabRoom() {
       setHasUnsavedChanges(false);
     });
 
+    socket.on('editor:op', (payload) => {
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      const model = editor?.getModel();
+      const changes = Array.isArray(payload?.changes) ? payload.changes : [];
+
+      if (!editor || !monaco || !model || changes.length === 0) return;
+
+      const edits = changes
+        .map((change) => {
+          const rangeOffset = Number.isInteger(change?.rangeOffset) ? change.rangeOffset : null;
+          const rangeLength = Number.isInteger(change?.rangeLength) ? change.rangeLength : null;
+          const text = typeof change?.text === 'string' ? change.text : '';
+          if (rangeOffset === null || rangeLength === null) return null;
+
+          const safeStart = Math.max(0, Math.min(rangeOffset, model.getValueLength()));
+          const safeEnd = Math.max(safeStart, Math.min(safeStart + Math.max(0, rangeLength), model.getValueLength()));
+
+          return {
+            range: new monaco.Range(
+              model.getPositionAt(safeStart).lineNumber,
+              model.getPositionAt(safeStart).column,
+              model.getPositionAt(safeEnd).lineNumber,
+              model.getPositionAt(safeEnd).column,
+            ),
+            text,
+            forceMoveMarkers: true,
+          };
+        })
+        .filter(Boolean);
+
+      if (edits.length === 0) return;
+
+      suppressLocalOpsRef.current = true;
+      model.pushEditOperations([], edits, () => null);
+      suppressLocalOpsRef.current = false;
+
+      applyingRemoteRef.current = true;
+      setContent(model.getValue());
+      setHasUnsavedChanges(true);
+    });
+
     socket.on('ai:status', (payload) => {
       setAiStatus(payload?.phase === 'running' ? 'running' : 'idle');
     });
@@ -633,12 +687,6 @@ function CollabRoom() {
 
     const socket = socketRef.current;
     if (!socket) return;
-
-    socket.emit('editor:update', {
-      roomId: Number(roomId),
-      fileId,
-      content: nextContent,
-    });
   };
 
   const requestAiAssistance = () => {
@@ -855,7 +903,6 @@ function CollabRoom() {
                     style={{ backgroundColor: colorFromSeed(member.user?.email || member.socketId) }}
                   />
                   {member.user?.name || 'Unknown'}
-                  {member.socketId === mySocketIdRef.current ? ' (you)' : ''}
                 </span>
                 <small>cursor {member.cursor ?? 0}</small>
               </li>
@@ -886,6 +933,30 @@ function CollabRoom() {
 
               editorInstance.onDidChangeCursorPosition(() => {
                 emitCursor();
+              });
+
+              editorInstance.onDidChangeModelContent((event) => {
+                if (suppressLocalOpsRef.current || applyingRemoteRef.current) return;
+
+                const socket = socketRef.current;
+                const currentRoomId = roomIdRef.current;
+                const currentFileId = fileIdRef.current;
+
+                if (!socket || !currentRoomId || !currentFileId) return;
+
+                const changes = (event.changes || []).map((change) => ({
+                  rangeOffset: change.rangeOffset,
+                  rangeLength: change.rangeLength,
+                  text: change.text,
+                }));
+
+                if (changes.length === 0) return;
+
+                socket.emit('editor:op', {
+                  roomId: currentRoomId,
+                  fileId: currentFileId,
+                  changes,
+                });
               });
             }}
             onChange={(nextValue) => onLocalContentChange(nextValue || '')}

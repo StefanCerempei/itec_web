@@ -145,6 +145,28 @@ const buildProposedContent = ({ mode, currentContent, suggestion }) => {
     return `${currentContent}${separator}${suggestion}`;
 };
 
+const applyTextChanges = (baseContent, changes) => {
+    if (!Array.isArray(changes) || changes.length === 0) return baseContent;
+
+    const normalizedChanges = changes
+        .map((change) => ({
+            rangeOffset: Number.isInteger(change?.rangeOffset) ? change.rangeOffset : 0,
+            rangeLength: Number.isInteger(change?.rangeLength) ? change.rangeLength : 0,
+            text: typeof change?.text === 'string' ? change.text : ''
+        }))
+        .sort((a, b) => b.rangeOffset - a.rangeOffset);
+
+    let content = typeof baseContent === 'string' ? baseContent : '';
+
+    for (const change of normalizedChanges) {
+        const start = Math.max(0, Math.min(change.rangeOffset, content.length));
+        const end = Math.max(start, Math.min(start + Math.max(0, change.rangeLength), content.length));
+        content = `${content.slice(0, start)}${change.text}${content.slice(end)}`;
+    }
+
+    return content;
+};
+
 // Rate limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -255,6 +277,27 @@ io.on('connection', (socket) => {
             roomId,
             fileId,
             content,
+            by: socket.data.user || null,
+            at: new Date().toISOString()
+        });
+    });
+
+    socket.on('editor:op', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+        const changes = Array.isArray(payload.changes) ? payload.changes : [];
+
+        if (!roomId || !fileId || changes.length === 0) return;
+
+        const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
+        const room = ensureRealtimeRoom(roomId, fileId);
+
+        room.content = applyTextChanges(room.content, changes);
+
+        socket.to(channel).emit('editor:op', {
+            roomId,
+            fileId,
+            changes,
             by: socket.data.user || null,
             at: new Date().toISOString()
         });
