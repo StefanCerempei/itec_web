@@ -61,6 +61,12 @@ const io = new Server(httpServer, {
             return callback(new Error(`Socket origin not allowed: ${origin}`));
         },
         credentials: true
+    },
+    pingInterval: 25000,
+    pingTimeout: 120000,
+    connectionStateRecovery: {
+        maxDisconnectionDuration: 5 * 60 * 1000,
+        skipMiddlewares: true
     }
 });
 
@@ -71,6 +77,11 @@ const collabState = {
 
 const DEFAULT_AI_AGENTS = ['Planner', 'Refactor', 'BugFixer', 'Performance'];
 const MAX_COLLABORATORS_PER_ROOM = 4;
+const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
+const pendingMemberRemovals = new Map();
+
+const getUserPresenceKey = (user = {}) =>
+    String(user.id || user.email || user.name || 'unknown-user').trim().toLowerCase();
 
 const getAiAgents = () => {
     const modelBackedAgents = (configuredModels || []).map((model, index) => ({
@@ -245,6 +256,27 @@ io.on('connection', (socket) => {
             name: user.name || user.email || `User-${String(socket.id).slice(0, 4)}`,
             email: user.email || null
         };
+
+        const reconnectingUserKey = getUserPresenceKey(socket.data.user);
+
+        for (const [existingSocketId, existingMember] of room.members.entries()) {
+            if (existingSocketId === socket.id) continue;
+            if (getUserPresenceKey(existingMember.user) !== reconnectingUserKey) continue;
+
+            room.members.delete(existingSocketId);
+
+            const pendingTimer = pendingMemberRemovals.get(existingSocketId);
+            if (pendingTimer) {
+                clearTimeout(pendingTimer);
+                pendingMemberRemovals.delete(existingSocketId);
+            }
+        }
+
+        const selfPendingTimer = pendingMemberRemovals.get(socket.id);
+        if (selfPendingTimer) {
+            clearTimeout(selfPendingTimer);
+            pendingMemberRemovals.delete(socket.id);
+        }
 
         room.members.set(socket.id, {
             socketId: socket.id,
@@ -541,22 +573,30 @@ io.on('connection', (socket) => {
         const channel = socket.data.channel;
         if (!roomId || !fileId || !channel) return;
 
-        const key = getRoomKey(roomId, fileId);
-        const room = collabState.rooms.get(key);
-        if (!room) return;
+        if (pendingMemberRemovals.has(socket.id)) return;
 
-        room.members.delete(socket.id);
+        const removalTimer = setTimeout(() => {
+            pendingMemberRemovals.delete(socket.id);
 
-        if (room.members.size === 0) {
-            collabState.rooms.delete(key);
-            return;
-        }
+            const key = getRoomKey(roomId, fileId);
+            const room = collabState.rooms.get(key);
+            if (!room) return;
 
-        io.to(channel).emit('presence:state', {
-            roomId,
-            fileId,
-            members: serializeMembers(room.members)
-        });
+            room.members.delete(socket.id);
+
+            if (room.members.size === 0) {
+                collabState.rooms.delete(key);
+                return;
+            }
+
+            io.to(channel).emit('presence:state', {
+                roomId,
+                fileId,
+                members: serializeMembers(room.members)
+            });
+        }, DISCONNECT_GRACE_MS);
+
+        pendingMemberRemovals.set(socket.id, removalTimer);
     });
 });
 
