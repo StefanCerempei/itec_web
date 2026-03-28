@@ -1059,12 +1059,8 @@ function CollabRoom() {
                 socket.emit('editor:op', {
                   roomId: currentRoomId,
                   fileId: currentFileId,
-                  baseRevision: roomRevisionRef.current,
-                  fullContent: latest,
                   changes,
                 });
-
-                roomRevisionRef.current += 1;
               });
             }}
             options={{

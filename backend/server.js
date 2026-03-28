@@ -304,46 +304,11 @@ io.on('connection', (socket) => {
         const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
         const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
         const changes = Array.isArray(payload.changes) ? payload.changes : [];
-        const baseRevision = Number.isInteger(payload.baseRevision) ? payload.baseRevision : null;
-        const fullContent = typeof payload.fullContent === 'string' ? payload.fullContent : null;
 
         if (!roomId || !fileId || changes.length === 0) return;
 
         const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
-
-        // When client/server revisions diverge, applying offsets can shift unrelated blocks.
-        // Fallback to sender's full content snapshot to keep both peers aligned.
-        if (baseRevision !== null && baseRevision !== (room.revision || 0)) {
-            if (fullContent !== null) {
-                room.content = fullContent;
-                room.revision = (room.revision || 0) + 1;
-
-                io.to(channel).emit('editor:update', {
-                    roomId,
-                    fileId,
-                    content: room.content,
-                    revision: room.revision,
-                    by: socket.data.user || null,
-                    at: new Date().toISOString()
-                });
-
-                socket.emit('editor:ack', {
-                    roomId,
-                    fileId,
-                    revision: room.revision
-                });
-                return;
-            }
-
-            socket.emit('editor:resync', {
-                roomId,
-                fileId,
-                content: room.content,
-                revision: room.revision || 0
-            });
-            return;
-        }
 
         room.content = applyTextChanges(room.content, changes);
         room.revision = (room.revision || 0) + 1;
