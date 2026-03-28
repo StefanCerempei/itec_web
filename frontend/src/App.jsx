@@ -6,6 +6,7 @@ import SignUp from './pages/SignUp'
 import CollabHub from './pages/CollabHub'
 import CollabRoom from './pages/CollabRoom'
 import './App.css'
+import Demo from "./pages/Demo.jsx";
 
 function App() {
     return (
@@ -15,6 +16,7 @@ function App() {
                     <Route path="/" element={<Welcome />} />
                     <Route path="/signin" element={<SignIn />} />
                     <Route path="/signup" element={<SignUp />} />
+                    <Route path="/demo" element={<Demo />} />
                     <Route path="/create" element={<CollabHub />} />
                     <Route path="/collab" element={<CollabHub />} />
                     <Route path="/collab/:roomId" element={<CollabRoom />} />
