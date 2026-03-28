@@ -296,22 +296,11 @@ io.on('connection', (socket) => {
         const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
         const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
         const changes = Array.isArray(payload.changes) ? payload.changes : [];
-        const baseRevision = Number.isInteger(payload.baseRevision) ? payload.baseRevision : 0;
 
         if (!roomId || !fileId || changes.length === 0) return;
 
         const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
-
-        if (baseRevision !== (room.revision || 0)) {
-            socket.emit('editor:resync', {
-                roomId,
-                fileId,
-                content: room.content,
-                revision: room.revision || 0,
-            });
-            return;
-        }
 
         room.content = applyTextChanges(room.content, changes);
         room.revision = (room.revision || 0) + 1;
