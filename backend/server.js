@@ -94,6 +94,7 @@ const ensureRealtimeRoom = (roomId, fileId) => {
     if (!collabState.rooms.has(key)) {
         collabState.rooms.set(key, {
             content: '',
+            revision: 0,
             members: new Map(),
             aiBlocks: new Map(),
             nextAiBlockId: 1
@@ -250,6 +251,7 @@ io.on('connection', (socket) => {
             roomId,
             fileId,
             content: room.content,
+            revision: room.revision || 0,
             members: serializeMembers(room.members),
             aiBlocks: serializeAiBlocks(room.aiBlocks),
             aiAgents: getAiAgents()
@@ -272,13 +274,21 @@ io.on('connection', (socket) => {
         const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
         room.content = content;
+        room.revision = (room.revision || 0) + 1;
 
         socket.to(channel).emit('editor:update', {
             roomId,
             fileId,
             content,
+            revision: room.revision,
             by: socket.data.user || null,
             at: new Date().toISOString()
+        });
+
+        socket.emit('editor:ack', {
+            roomId,
+            fileId,
+            revision: room.revision
         });
     });
 
@@ -286,20 +296,39 @@ io.on('connection', (socket) => {
         const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
         const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
         const changes = Array.isArray(payload.changes) ? payload.changes : [];
+        const baseRevision = Number.isInteger(payload.baseRevision) ? payload.baseRevision : 0;
 
         if (!roomId || !fileId || changes.length === 0) return;
 
         const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
 
+        if (baseRevision !== (room.revision || 0)) {
+            socket.emit('editor:resync', {
+                roomId,
+                fileId,
+                content: room.content,
+                revision: room.revision || 0,
+            });
+            return;
+        }
+
         room.content = applyTextChanges(room.content, changes);
+        room.revision = (room.revision || 0) + 1;
 
         socket.to(channel).emit('editor:op', {
             roomId,
             fileId,
             changes,
+            revision: room.revision,
             by: socket.data.user || null,
             at: new Date().toISOString()
+        });
+
+        socket.emit('editor:ack', {
+            roomId,
+            fileId,
+            revision: room.revision
         });
     });
 
