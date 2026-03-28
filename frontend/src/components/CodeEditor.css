@@ -1,0 +1,394 @@
+/* Code Editor Container */
+.code-editor {
+    flex: 1;
+    display: flex;
+    background: #1e1e2e;
+    position: relative;
+    overflow: hidden;
+    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+/* Editor Gutter (Line Numbers) */
+.editor-gutter {
+    background: #1a1a2a;
+    padding: 1rem 0.75rem;
+    text-align: right;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    user-select: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    min-width: 55px;
+    position: relative;
+    z-index: 1;
+}
+
+.line-number {
+    padding: 0 0.5rem;
+    min-width: 40px;
+    text-align: right;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    transition: color 0.2s ease;
+    cursor: pointer;
+}
+
+.line-number:hover {
+    color: #667eea;
+}
+
+/* Active line number styling */
+.line-number.active {
+    color: #667eea;
+    font-weight: 600;
+    position: relative;
+}
+
+.line-number.active::before {
+    content: '▶';
+    position: absolute;
+    left: -8px;
+    font-size: 10px;
+    color: #667eea;
+}
+
+/* Editor Textarea */
+.editor-textarea {
+    flex: 1;
+    background: #1e1e2e;
+    border: none;
+    color: #e0e0e0;
+    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 1rem;
+    resize: none;
+    outline: none;
+    white-space: pre;
+    overflow-x: auto;
+    tab-size: 2;
+    letter-spacing: 0.3px;
+}
+
+.editor-textarea::selection {
+    background: rgba(102, 126, 234, 0.3);
+    color: #ffffff;
+}
+
+.editor-textarea:focus {
+    outline: none;
+}
+
+/* Custom Cursor */
+.editor-textarea {
+    caret-color: #667eea;
+}
+
+/* Scrollbar Styling */
+.editor-textarea::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.editor-textarea::-webkit-scrollbar-track {
+    background: #1a1a2a;
+    border-radius: 5px;
+}
+
+.editor-textarea::-webkit-scrollbar-thumb {
+    background: rgba(102, 126, 234, 0.4);
+    border-radius: 5px;
+    transition: background 0.3s;
+}
+
+.editor-textarea::-webkit-scrollbar-thumb:hover {
+    background: rgba(102, 126, 234, 0.7);
+}
+
+.editor-textarea::-webkit-scrollbar-corner {
+    background: #1a1a2a;
+}
+
+/* Placeholder Styling */
+.editor-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+    font-style: italic;
+}
+
+/* Syntax Highlighting Simulation */
+.editor-textarea {
+    color: #e0e0e0;
+}
+
+/* Line Highlighting on Focus */
+.editor-textarea:focus {
+    box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.2);
+}
+
+/* Active Cursors */
+.active-cursors {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.cursor {
+    position: absolute;
+    width: 2px;
+    height: 20px;
+    background: transparent;
+    border-left: 2px solid;
+    animation: blink 1s infinite;
+    pointer-events: none;
+}
+
+.cursor-label {
+    position: absolute;
+    top: -20px;
+    left: 0;
+    background: #667eea;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+    font-family: sans-serif;
+    pointer-events: none;
+}
+
+/* Animations */
+@keyframes blink {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+}
+
+/* Code Editor Wrapper */
+.code-editor-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+}
+
+/* Minimap (Optional) */
+.editor-minimap {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 60px;
+    background: rgba(0, 0, 0, 0.3);
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.code-editor:hover .editor-minimap {
+    opacity: 1;
+}
+
+/* Breadcrumb Navigation */
+.editor-breadcrumb {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: rgba(26, 26, 42, 0.9);
+    backdrop-filter: blur(10px);
+    padding: 0.25rem 1rem;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 5;
+    transform: translateY(-100%);
+    transition: transform 0.3s;
+}
+
+.code-editor:hover .editor-breadcrumb {
+    transform: translateY(0);
+}
+
+/* Language Indicator */
+.editor-language {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: monospace;
+    color: rgba(255, 255, 255, 0.5);
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+    .editor-gutter {
+        min-width: 50px;
+        padding: 0.875rem 0.5rem;
+    }
+
+    .line-number {
+        font-size: 12px;
+        padding: 0 0.25rem;
+    }
+
+    .editor-textarea {
+        font-size: 12px;
+        padding: 0.875rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .editor-gutter {
+        min-width: 45px;
+        padding: 0.75rem 0.25rem;
+    }
+
+    .line-number {
+        font-size: 11px;
+        min-width: 30px;
+    }
+
+    .editor-textarea {
+        font-size: 11px;
+        padding: 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .editor-gutter {
+        min-width: 40px;
+    }
+
+    .line-number {
+        font-size: 10px;
+    }
+
+    .editor-textarea {
+        font-size: 10px;
+    }
+}
+
+/* Dark Theme Enhancements */
+@media (prefers-color-scheme: dark) {
+    .code-editor {
+        background: #1a1a2a;
+    }
+
+    .editor-gutter {
+        background: #14141f;
+    }
+
+    .editor-textarea {
+        background: #1a1a2a;
+    }
+}
+
+/* Loading State */
+.code-editor.loading {
+    position: relative;
+}
+
+.code-editor.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 30px;
+    border: 3px solid rgba(102, 126, 234, 0.3);
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    z-index: 100;
+}
+
+@keyframes spin {
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+/* Read-only Mode */
+.editor-textarea[readonly] {
+    opacity: 0.8;
+    cursor: default;
+}
+
+.editor-textarea[readonly]:focus {
+    box-shadow: none;
+}
+
+/* Find and Replace Panel */
+.editor-find-panel {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: #2a2a3a;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 0.5rem;
+    z-index: 20;
+    display: flex;
+    gap: 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.editor-find-input {
+    background: #1a1a2a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    color: white;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.editor-find-input:focus {
+    border-color: #667eea;
+}
+
+/* Line Wrapping Toggle */
+.editor-textarea.wrap {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Selection Highlight */
+.editor-textarea::selection {
+    background: rgba(102, 126, 234, 0.3);
+}
+
+/* Print Styles */
+@media print {
+    .code-editor {
+        background: white;
+    }
+
+    .editor-gutter {
+        background: #f0f0f0;
+        color: #666;
+    }
+
+    .editor-textarea {
+        color: black;
+        background: white;
+    }
+}
