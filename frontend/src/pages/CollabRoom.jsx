@@ -368,23 +368,15 @@ function CollabRoom() {
         member.cursorLine > 0 &&
         Number.isInteger(member.cursorColumn) &&
         member.cursorColumn > 0;
-      const hasOffset = Number.isInteger(member.cursor) && member.cursor >= 0;
+      if (!hasLineColumn) return;
 
-      if (!hasLineColumn && !hasOffset) return;
-
-      const position = hasLineColumn
-        ? {
-          lineNumber: Math.min(member.cursorLine, model.getLineCount()),
-          column: Math.min(
-            member.cursorColumn,
-            model.getLineMaxColumn(Math.min(member.cursorLine, model.getLineCount()))
-          ),
-        }
-        : (() => {
-          const rawCursor = member.cursor;
-          const clampedOffset = Math.max(0, Math.min(rawCursor, model.getValueLength()));
-          return model.getPositionAt(clampedOffset);
-        })();
+      const position = {
+        lineNumber: Math.min(member.cursorLine, model.getLineCount()),
+        column: Math.min(
+          member.cursorColumn,
+          model.getLineMaxColumn(Math.min(member.cursorLine, model.getLineCount()))
+        ),
+      };
       if (!position) return;
 
       const lineRange = new monaco.Range(
@@ -645,6 +637,11 @@ function CollabRoom() {
         setSelectedAiAgents((previous) => (previous.length > 0 ? previous : incomingAgents.slice(0, 2)));
       }
 
+      // Refresh local cursor so late joiners receive exact current line/column.
+      setTimeout(() => {
+        emitCursor();
+      }, 0);
+
       // One-shot hard resync avoids stale/empty payload races for late joiners.
       socket.emit('editor:resync:request', {
         roomId: numericRoomId,
@@ -654,6 +651,11 @@ function CollabRoom() {
 
     socket.on('presence:state', (payload) => {
       setMembers(payload.members || []);
+
+      // Membership changes can leave stale cursor placements for new users.
+      setTimeout(() => {
+        emitCursor();
+      }, 0);
     });
 
     socket.on('presence:cursor', (payload) => {
