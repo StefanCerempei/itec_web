@@ -7,6 +7,7 @@ import CollabHub from './pages/CollabHub'
 import CollabRoom from './pages/CollabRoom'
 import './App.css'
 import Demo from "./pages/Demo.jsx";
+import Contact from './pages/Contact'
 
 function App() {
     return (
@@ -17,6 +18,7 @@ function App() {
                     <Route path="/signin" element={<SignIn />} />
                     <Route path="/signup" element={<SignUp />} />
                     <Route path="/demo" element={<Demo />} />
+                    <Route path="/contact" element={<Contact />} />
                     <Route path="/create" element={<CollabHub />} />
                     <Route path="/collab" element={<CollabHub />} />
                     <Route path="/collab/:roomId" element={<CollabRoom />} />
