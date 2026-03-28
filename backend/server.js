@@ -760,6 +760,31 @@ const resolveRoomFromToken = async (roomToken) => {
     return { room: data || null, error: error || null };
 };
 
+const getRoomActiveParticipantCounts = () => {
+    const perRoomSocketSets = new Map();
+
+    for (const [roomKey, roomState] of collabState.rooms.entries()) {
+        const rawRoomId = String(roomKey || '').split(':')[0];
+        const roomId = asPositiveInt(rawRoomId);
+        if (!roomId) continue;
+
+        if (!perRoomSocketSets.has(roomId)) {
+            perRoomSocketSets.set(roomId, new Set());
+        }
+
+        const socketSet = perRoomSocketSets.get(roomId);
+        for (const socketId of roomState.members.keys()) {
+            socketSet.add(socketId);
+        }
+    }
+
+    const counts = new Map();
+    for (const [roomId, socketSet] of perRoomSocketSets.entries()) {
+        counts.set(roomId, socketSet.size);
+    }
+    return counts;
+};
+
 // Auth endpoints backed by custom users table.
 // Expected schema uses lowercase Postgres identifiers: users(email, password, firstname, lastname, ...).
 app.post('/api/auth/signup', async (req, res, next) => {
@@ -1070,6 +1095,79 @@ app.get('/api/rooms/:roomId', async (req, res, next) => {
                 updatedAt: room.updatedat || null
             }
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// List user's recent sessions with live participant counts.
+app.get('/api/rooms/sessions', async (req, res, next) => {
+    try {
+        const userId = asPositiveInt(req.query?.userId);
+        if (!userId) {
+            return res.status(400).json({ message: 'Valid userId query parameter is required.' });
+        }
+
+        const roomIds = new Set();
+
+        const { data: ownedRooms, error: ownedError } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id')
+            .eq('createdby', userId)
+            .limit(100);
+        if (ownedError) {
+            return res.status(400).json({ message: ownedError.message, code: ownedError.code });
+        }
+        (ownedRooms || []).forEach((room) => {
+            const id = asPositiveInt(room?.id);
+            if (id) roomIds.add(id);
+        });
+
+        const { data: memberRows, error: memberError } = await supabase
+            .from(ROOM_MEMBERS_TABLE)
+            .select('roomid')
+            .eq('userid', userId)
+            .limit(200);
+        if (memberError) {
+            return res.status(400).json({ message: memberError.message, code: memberError.code });
+        }
+        (memberRows || []).forEach((row) => {
+            const id = asPositiveInt(row?.roomid);
+            if (id) roomIds.add(id);
+        });
+
+        if (roomIds.size === 0) {
+            return res.status(200).json({ sessions: [] });
+        }
+
+        const roomIdList = Array.from(roomIds);
+        const { data: rooms, error: roomsError } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,createdby,updatedat,passwordhash')
+            .in('id', roomIdList)
+            .order('updatedat', { ascending: false })
+            .limit(25);
+
+        if (roomsError) {
+            return res.status(400).json({ message: roomsError.message, code: roomsError.code });
+        }
+
+        const activeCounts = getRoomActiveParticipantCounts();
+        const sessions = (rooms || []).map((room) => {
+            const roomId = asPositiveInt(room?.id);
+            const activeParticipants = roomId ? activeCounts.get(roomId) || 0 : 0;
+            return {
+                id: roomId,
+                name: room?.name || `Room ${roomId}`,
+                roomCode: room?.roomcode || null,
+                passwordProtected: Boolean(room?.passwordhash),
+                isOwner: asPositiveInt(room?.createdby) === userId,
+                activeParticipants,
+                updatedAt: room?.updatedat || null
+            };
+        });
+
+        return res.status(200).json({ sessions });
     } catch (error) {
         next(error);
     }
