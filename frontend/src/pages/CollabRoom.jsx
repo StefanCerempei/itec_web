@@ -55,6 +55,7 @@ function CollabRoom() {
   const suppressLocalOpsRef = useRef(false);
   const roomIdRef = useRef(null);
   const fileIdRef = useRef(null);
+  const roomRevisionRef = useRef(0);
   const presenceStyleElRef = useRef(null);
   const presenceClassCacheRef = useRef(new Map());
   const nextPresenceStyleIdRef = useRef(1);
@@ -360,6 +361,19 @@ function CollabRoom() {
     contentRef.current = content;
   }, [content]);
 
+  const replaceEditorContent = (nextContent) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return false;
+
+    if (model.getValue() === nextContent) return true;
+
+    suppressLocalOpsRef.current = true;
+    model.setValue(nextContent);
+    suppressLocalOpsRef.current = false;
+    return true;
+  };
+
   useEffect(() => {
     const numericRoomId = Number(roomId);
     roomIdRef.current = Number.isInteger(numericRoomId) && numericRoomId > 0 ? numericRoomId : null;
@@ -521,9 +535,14 @@ function CollabRoom() {
 
     socket.on('room:joined', (payload) => {
       if (typeof payload.content === 'string' && payload.content !== content) {
+        replaceEditorContent(payload.content);
         applyingRemoteRef.current = true;
         setContent(payload.content);
         setHasUnsavedChanges(false);
+      }
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
       }
 
       setMembers(payload.members || []);
@@ -575,6 +594,12 @@ function CollabRoom() {
 
     socket.on('editor:update', (payload) => {
       if (typeof payload?.content !== 'string') return;
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+
+      replaceEditorContent(payload.content);
       applyingRemoteRef.current = true;
       setContent(payload.content);
       setHasUnsavedChanges(false);
@@ -613,12 +638,35 @@ function CollabRoom() {
 
       if (edits.length === 0) return;
 
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+
       suppressLocalOpsRef.current = true;
       model.pushEditOperations([], edits, () => null);
       suppressLocalOpsRef.current = false;
 
       applyingRemoteRef.current = true;
       setContent(model.getValue());
+      setHasUnsavedChanges(true);
+    });
+
+    socket.on('editor:ack', (payload) => {
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+    });
+
+    socket.on('editor:resync', (payload) => {
+      if (typeof payload?.content !== 'string') return;
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+
+      replaceEditorContent(payload.content);
+      applyingRemoteRef.current = true;
+      setContent(payload.content);
       setHasUnsavedChanges(true);
     });
 
@@ -673,20 +721,6 @@ function CollabRoom() {
       cursorLine: position.lineNumber,
       cursorColumn: position.column,
     });
-  };
-
-  const onLocalContentChange = (nextContent) => {
-    if (applyingRemoteRef.current) {
-      applyingRemoteRef.current = false;
-      setContent(nextContent);
-      return;
-    }
-
-    setContent(nextContent);
-    setHasUnsavedChanges(true);
-
-    const socket = socketRef.current;
-    if (!socket) return;
   };
 
   const requestAiAssistance = () => {
@@ -926,7 +960,7 @@ function CollabRoom() {
             height="72vh"
             theme="vs-dark"
             language={language}
-            value={content}
+            defaultValue={content}
             onMount={(editorInstance, monaco) => {
               editorRef.current = editorInstance;
               monacoRef.current = monaco;
@@ -937,6 +971,10 @@ function CollabRoom() {
 
               editorInstance.onDidChangeModelContent((event) => {
                 if (suppressLocalOpsRef.current || applyingRemoteRef.current) return;
+
+                const latest = editorInstance.getValue();
+                setContent(latest);
+                setHasUnsavedChanges(true);
 
                 const socket = socketRef.current;
                 const currentRoomId = roomIdRef.current;
@@ -955,11 +993,11 @@ function CollabRoom() {
                 socket.emit('editor:op', {
                   roomId: currentRoomId,
                   fileId: currentFileId,
+                  baseRevision: roomRevisionRef.current,
                   changes,
                 });
               });
             }}
-            onChange={(nextValue) => onLocalContentChange(nextValue || '')}
             options={{
               minimap: { enabled: false },
               fontSize: 14,
