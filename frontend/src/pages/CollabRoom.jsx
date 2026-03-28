@@ -46,7 +46,6 @@ function CollabRoom() {
 
   const socketRef = useRef(null);
   const mySocketIdRef = useRef(null);
-  const applyingRemoteRef = useRef(false);
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationsRef = useRef([]);
@@ -536,7 +535,6 @@ function CollabRoom() {
     socket.on('room:joined', (payload) => {
       if (typeof payload.content === 'string' && payload.content !== content) {
         replaceEditorContent(payload.content);
-        applyingRemoteRef.current = true;
         setContent(payload.content);
         setHasUnsavedChanges(false);
       }
@@ -600,7 +598,6 @@ function CollabRoom() {
       }
 
       replaceEditorContent(payload.content);
-      applyingRemoteRef.current = true;
       setContent(payload.content);
       setHasUnsavedChanges(false);
     });
@@ -646,7 +643,6 @@ function CollabRoom() {
       model.pushEditOperations([], edits, () => null);
       suppressLocalOpsRef.current = false;
 
-      applyingRemoteRef.current = true;
       setContent(model.getValue());
     });
 
@@ -664,7 +660,6 @@ function CollabRoom() {
       }
 
       replaceEditorContent(payload.content);
-      applyingRemoteRef.current = true;
       setContent(payload.content);
       setHasUnsavedChanges(false);
     });
@@ -969,7 +964,7 @@ function CollabRoom() {
               });
 
               editorInstance.onDidChangeModelContent((event) => {
-                if (suppressLocalOpsRef.current || applyingRemoteRef.current) return;
+                if (suppressLocalOpsRef.current) return;
 
                 const latest = editorInstance.getValue();
                 setContent(latest);
