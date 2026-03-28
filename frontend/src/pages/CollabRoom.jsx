@@ -28,6 +28,7 @@ function CollabRoom() {
   const [filePath, setFilePath] = useState('main.js');
   const [language, setLanguage] = useState('javascript');
   const [content, setContent] = useState('');
+  const [isFileReady, setIsFileReady] = useState(false);
   const [members, setMembers] = useState([]);
   const [stdin, setStdin] = useState('');
   const [runOutput, setRunOutput] = useState('');
@@ -428,6 +429,17 @@ function CollabRoom() {
     return true;
   };
 
+  const normalizeLeadingBlankLine = (textValue) => {
+    const text = typeof textValue === 'string' ? textValue : '';
+    if (text.startsWith('\r\n') && text.length > 2 && text[2] !== '\r' && text[2] !== '\n') {
+      return text.slice(2);
+    }
+    if (text.startsWith('\n') && text.length > 1 && text[1] !== '\n') {
+      return text.slice(1);
+    }
+    return text;
+  };
+
   useEffect(() => {
     const numericRoomId = Number(roomId);
     roomIdRef.current = Number.isInteger(numericRoomId) && numericRoomId > 0 ? numericRoomId : null;
@@ -462,21 +474,28 @@ function CollabRoom() {
     const bootstrapFile = async () => {
       try {
         setErrorMessage('');
+        setIsFileReady(false);
         const numericRoomId = Number(roomId);
         if (!Number.isInteger(numericRoomId) || numericRoomId <= 0) {
           throw new Error('Invalid room id in URL.');
         }
+
+        const applyFileState = (file) => {
+          const normalizedContent = normalizeLeadingBlankLine(file.content || '');
+          setFilePath(file.path || 'main.js');
+          setLanguage(file.language || inferLanguageFromPath(file.path));
+          setContent(normalizedContent);
+          setFileId(file.id);
+          setHasUnsavedChanges(false);
+          setIsFileReady(true);
+        };
 
         if (fileIdParam) {
           const res = await fetch(`${apiBaseUrl}/api/rooms/${numericRoomId}/files/${fileIdParam}`);
           const payload = await res.json();
           if (!res.ok) throw new Error(payload.message || 'Failed to load file.');
           if (cancelled) return;
-          setFileId(payload.file.id);
-          setFilePath(payload.file.path || 'main.js');
-          setLanguage(payload.file.language || inferLanguageFromPath(payload.file.path));
-          setContent(payload.file.content || '');
-          setHasUnsavedChanges(false);
+          applyFileState(payload.file);
           return;
         }
 
@@ -493,11 +512,7 @@ function CollabRoom() {
           if (!fileRes.ok) throw new Error(filePayload.message || 'Failed to load file.');
 
           if (cancelled) return;
-          setFileId(filePayload.file.id);
-          setFilePath(filePayload.file.path || 'main.js');
-          setLanguage(filePayload.file.language || inferLanguageFromPath(filePayload.file.path));
-          setContent(filePayload.file.content || '');
-          setHasUnsavedChanges(false);
+          applyFileState(filePayload.file);
           return;
         }
 
@@ -516,13 +531,12 @@ function CollabRoom() {
         if (!createRes.ok) throw new Error(createPayload.message || 'Failed to create initial file.');
 
         if (cancelled) return;
-        setFileId(createPayload.file.id);
-        setFilePath(createPayload.file.path || 'main.js');
-        setLanguage(createPayload.file.language || inferLanguageFromPath(createPayload.file.path));
-        setContent(createPayload.file.content || '');
-        setHasUnsavedChanges(false);
+        applyFileState(createPayload.file);
       } catch (error) {
-        if (!cancelled) setErrorMessage(error.message || 'Unable to initialize collaboration file.');
+        if (!cancelled) {
+          setIsFileReady(false);
+          setErrorMessage(error.message || 'Unable to initialize collaboration file.');
+        }
       }
     };
 
@@ -554,7 +568,7 @@ function CollabRoom() {
 
   useEffect(() => {
     const numericRoomId = Number(roomId);
-    if (!fileId || !Number.isInteger(numericRoomId) || numericRoomId <= 0) return;
+    if (!isFileReady || !fileId || !Number.isInteger(numericRoomId) || numericRoomId <= 0) return;
 
     const socket = io(apiBaseUrl, {
       transports: ['websocket'],
@@ -588,9 +602,10 @@ function CollabRoom() {
     });
 
     socket.on('room:joined', (payload) => {
-      if (typeof payload.content === 'string' && payload.content !== content) {
-        replaceEditorContent(payload.content);
-        setContent(payload.content);
+      const normalizedContent = normalizeLeadingBlankLine(payload?.content);
+      if (typeof normalizedContent === 'string' && normalizedContent !== content) {
+        replaceEditorContent(normalizedContent);
+        setContent(normalizedContent);
         setHasUnsavedChanges(false);
       }
 
@@ -647,13 +662,14 @@ function CollabRoom() {
 
     socket.on('editor:update', (payload) => {
       if (typeof payload?.content !== 'string') return;
+      const normalizedContent = normalizeLeadingBlankLine(payload.content);
 
       if (Number.isInteger(payload?.revision)) {
         roomRevisionRef.current = payload.revision;
       }
 
-      replaceEditorContent(payload.content);
-      setContent(payload.content);
+      replaceEditorContent(normalizedContent);
+      setContent(normalizedContent);
       setHasUnsavedChanges(false);
     });
 
@@ -709,13 +725,14 @@ function CollabRoom() {
 
     socket.on('editor:resync', (payload) => {
       if (typeof payload?.content !== 'string') return;
+      const normalizedContent = normalizeLeadingBlankLine(payload.content);
 
       if (Number.isInteger(payload?.revision)) {
         roomRevisionRef.current = payload.revision;
       }
 
-      replaceEditorContent(payload.content);
-      setContent(payload.content);
+      replaceEditorContent(normalizedContent);
+      setContent(normalizedContent);
       setHasUnsavedChanges(false);
     });
 
@@ -744,7 +761,7 @@ function CollabRoom() {
       socketRef.current = null;
       mySocketIdRef.current = null;
     };
-  }, [apiBaseUrl, currentUser, fileId, roomId]);
+  }, [apiBaseUrl, currentUser, fileId, roomId, isFileReady]);
 
   useEffect(() => () => {
     const editor = editorRef.current;
@@ -1031,12 +1048,23 @@ function CollabRoom() {
 
                 if (!socket || !currentRoomId || !currentFileId) return;
 
-                // Use full-content sync for now to avoid stale offset conflicts during simultaneous typing.
-                socket.emit('editor:update', {
+                const changes = (event.changes || []).map((change) => ({
+                  rangeOffset: change.rangeOffset,
+                  rangeLength: change.rangeLength,
+                  text: change.text,
+                }));
+
+                if (changes.length === 0) return;
+
+                socket.emit('editor:op', {
                   roomId: currentRoomId,
                   fileId: currentFileId,
-                  content: latest,
+                  baseRevision: roomRevisionRef.current,
+                  fullContent: latest,
+                  changes,
                 });
+
+                roomRevisionRef.current += 1;
               });
             }}
             options={{
