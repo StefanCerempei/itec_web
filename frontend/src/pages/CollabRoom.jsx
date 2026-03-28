@@ -981,6 +981,22 @@ function CollabRoom() {
       let payload;
 
       try {
+        const formBody = new URLSearchParams({
+          content,
+          language,
+          userId: String(currentUser.numericId),
+        });
+
+        // Prefer POST save endpoint to avoid PATCH preflight issues in some deployments.
+        res = await fetch(`${patchUrl}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody.toString(),
+        });
+
+        payload = await res.json();
+      } catch (networkError) {
+        // Fallback to PATCH for environments where /save endpoint is unavailable.
         res = await fetch(patchUrl, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -989,21 +1005,6 @@ function CollabRoom() {
             language,
             userId: currentUser.numericId,
           }),
-        });
-
-        payload = await res.json();
-      } catch (networkError) {
-        // Fallback for browsers/environments where PATCH preflight is blocked.
-        const formBody = new URLSearchParams({
-          content,
-          language,
-          userId: String(currentUser.numericId),
-        });
-
-        res = await fetch(`${patchUrl}/save`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formBody.toString(),
         });
 
         payload = await res.json();
