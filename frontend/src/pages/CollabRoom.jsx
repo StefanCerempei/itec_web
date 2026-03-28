@@ -662,8 +662,13 @@ function CollabRoom() {
       const monaco = monacoRef.current;
       const model = editor?.getModel();
       const changes = Array.isArray(payload?.changes) ? payload.changes : [];
+      const incomingRevision = Number.isInteger(payload?.revision) ? payload.revision : null;
 
       if (!editor || !monaco || !model || changes.length === 0) return;
+
+      if (incomingRevision !== null && incomingRevision <= roomRevisionRef.current) {
+        return;
+      }
 
       const edits = changes
         .map((change) => {
@@ -690,13 +695,13 @@ function CollabRoom() {
 
       if (edits.length === 0) return;
 
-      if (Number.isInteger(payload?.revision)) {
-        roomRevisionRef.current = payload.revision;
-      }
-
       suppressLocalOpsRef.current = true;
       model.pushEditOperations([], edits, () => null);
       suppressLocalOpsRef.current = false;
+
+      if (incomingRevision !== null) {
+        roomRevisionRef.current = incomingRevision;
+      }
 
       setContent(model.getValue());
     });
@@ -1043,8 +1048,11 @@ function CollabRoom() {
                   roomId: currentRoomId,
                   fileId: currentFileId,
                   baseRevision: roomRevisionRef.current,
+                  fullContent: latest,
                   changes,
                 });
+
+                roomRevisionRef.current += 1;
               });
             }}
             options={{
