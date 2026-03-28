@@ -614,9 +614,10 @@ const executeProcess = ({ command, args, stdin, timeoutMs }) =>
     });
 
 const updateRoomFileRecord = async ({ roomId, fileId, content, language, userId }) => {
+    const validUserId = await resolveExistingUserId(userId);
     const patch = {
         updatedat: new Date().toISOString(),
-        updatedby: asPositiveInt(userId)
+        updatedby: validUserId
     };
 
     if (typeof content === 'string') patch.content = content;
@@ -631,6 +632,20 @@ const updateRoomFileRecord = async ({ roomId, fileId, content, language, userId 
         .maybeSingle();
 
     return { data, error };
+};
+
+const resolveExistingUserId = async (candidateUserId) => {
+    const normalized = asPositiveInt(candidateUserId);
+    if (!normalized) return null;
+
+    const { data: user, error } = await supabase
+        .from(USERS_TABLE)
+        .select('id')
+        .eq('id', normalized)
+        .maybeSingle();
+
+    if (error || !user) return null;
+    return normalized;
 };
 
 // Auth endpoints backed by custom users table.
@@ -905,6 +920,8 @@ app.post('/api/rooms/:roomId/files', async (req, res, next) => {
             return res.status(400).json({ message: 'File path is required.' });
         }
 
+        const validUserId = await resolveExistingUserId(userId);
+
         const now = new Date().toISOString();
         const { data, error } = await supabase
             .from(ROOM_FILES_TABLE)
@@ -913,7 +930,7 @@ app.post('/api/rooms/:roomId/files', async (req, res, next) => {
                 path: path.trim(),
                 language: language || 'plaintext',
                 content: content || '',
-                updatedby: asPositiveInt(userId),
+                updatedby: validUserId,
                 createdat: now,
                 updatedat: now
             })
