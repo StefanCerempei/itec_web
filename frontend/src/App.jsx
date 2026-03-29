@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Welcome from './pages/Welcome'
 import SignIn from './pages/SignIn'
 import SignUp from './pages/SignUp'
+import AuthCallback from './pages/AuthCallback'
 import CollabHub from './pages/CollabHub'
 import CollabRoom from './pages/CollabRoom'
 import Demo from './pages/Demo'
@@ -21,6 +22,11 @@ import './App.css'
 
 function HomeEntry() {
     if (typeof window === 'undefined') return <Welcome />
+    const hash = window.location.hash || ''
+    const hasOAuthHashPayload = hash.includes('access_token=') || hash.includes('refresh_token=')
+    if (hasOAuthHashPayload) {
+        return <Navigate to="/auth/callback" replace />
+    }
     const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
     return isAuthenticated ? <Navigate to="/collab" replace /> : <Welcome />
 }
@@ -39,6 +45,7 @@ function App() {
                     <Route path="/" element={<HomeEntry />} />
                     <Route path="/signin" element={<SignIn />} />
                     <Route path="/signup" element={<SignUp />} />
+                    <Route path="/auth/callback" element={<AuthCallback />} />
                     <Route path="/collab" element={<CollabHub />} />
                     <Route path="/collab/:roomId" element={<CollabRoom />} />
                     <Route path="/collab/:roomId/:fileId" element={<CollabRoom />} />
