@@ -14,16 +14,31 @@ function CollabRoom() {
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   };
 
+  const stablePositiveIntFromSeed = (seed) => {
+    const str = String(seed || 'guest-user');
+    let hash = 0;
+    for (let i = 0; i < str.length; i += 1) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash) + 1;
+  };
+
   const [fileId, setFileId] = useState(fileIdParam ? Number(fileIdParam) : null);
   const [filePath, setFilePath] = useState('main.js');
+  const [roomName, setRoomName] = useState('Realtime Room');
+  const [roomCode, setRoomCode] = useState('');
+  const [copyStatus, setCopyStatus] = useState('idle');
   const [language, setLanguage] = useState('javascript');
   const [content, setContent] = useState('');
+  const [isFileReady, setIsFileReady] = useState(false);
   const [members, setMembers] = useState([]);
   const [stdin, setStdin] = useState('');
   const [runOutput, setRunOutput] = useState('');
   const [runStatus, setRunStatus] = useState('idle');
   const [status, setStatus] = useState('connecting');
   const [saveStatus, setSaveStatus] = useState('idle');
+  const [projectSaveStatus, setProjectSaveStatus] = useState('idle');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -36,11 +51,21 @@ function CollabRoom() {
 
   const socketRef = useRef(null);
   const mySocketIdRef = useRef(null);
-  const applyingRemoteRef = useRef(false);
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationsRef = useRef([]);
+  const aiDecorationsRef = useRef([]);
+  const aiDecorationTimerRef = useRef(null);
+  const cursorWidgetsRef = useRef(new Map());
   const contentRef = useRef('');
+  const suppressLocalOpsRef = useRef(false);
+  const roomIdRef = useRef(null);
+  const fileIdRef = useRef(null);
+  const roomRevisionRef = useRef(0);
+  const presenceStyleElRef = useRef(null);
+  const presenceClassCacheRef = useRef(new Map());
+  const nextPresenceStyleIdRef = useRef(1);
+  const disconnectTimerRef = useRef(null);
 
   const inferLanguageFromPath = (pathValue) => {
     const normalized = String(pathValue || '').toLowerCase();
@@ -63,32 +88,218 @@ function CollabRoom() {
     return 'plaintext';
   };
 
-  const colorFromSeed = (seed) => {
+  const hashFromSeed = (seed) => {
     const str = String(seed || 'member');
     let hash = 0;
     for (let i = 0; i < str.length; i += 1) {
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const hue = Math.abs(hash) % 360;
-    return `hsl(${hue} 75% 60%)`;
+    return Math.abs(hash);
+  };
+
+  const COLLABORATOR_PALETTES = [
+    {
+      id: 'amber',
+      dot: 'hsl(44 90% 62%)',
+      lineBg: 'hsla(44 95% 62% / 0.18)',
+      lineBorder: 'hsla(44 98% 72% / 0.52)',
+      labelBg: 'hsla(40 72% 16% / 0.96)',
+      labelText: 'hsl(45 100% 90%)',
+      caret: 'hsl(44 100% 72%)',
+      caretGlow: 'hsla(44 100% 72% / 0.44)',
+    },
+    {
+      id: 'cyan',
+      dot: 'hsl(192 90% 62%)',
+      lineBg: 'hsla(192 95% 62% / 0.18)',
+      lineBorder: 'hsla(192 98% 72% / 0.52)',
+      labelBg: 'hsla(196 76% 14% / 0.96)',
+      labelText: 'hsl(190 100% 90%)',
+      caret: 'hsl(192 100% 72%)',
+      caretGlow: 'hsla(192 100% 72% / 0.44)',
+    },
+    {
+      id: 'rose',
+      dot: 'hsl(345 86% 66%)',
+      lineBg: 'hsla(345 90% 66% / 0.18)',
+      lineBorder: 'hsla(345 94% 74% / 0.54)',
+      labelBg: 'hsla(342 70% 15% / 0.96)',
+      labelText: 'hsl(344 100% 92%)',
+      caret: 'hsl(345 96% 76%)',
+      caretGlow: 'hsla(345 98% 74% / 0.44)',
+    },
+    {
+      id: 'violet',
+      dot: 'hsl(270 88% 68%)',
+      lineBg: 'hsla(270 92% 68% / 0.18)',
+      lineBorder: 'hsla(270 95% 78% / 0.54)',
+      labelBg: 'hsla(272 66% 15% / 0.96)',
+      labelText: 'hsl(274 100% 92%)',
+      caret: 'hsl(270 96% 78%)',
+      caretGlow: 'hsla(270 98% 76% / 0.44)',
+    },
+  ];
+
+  const getMemberPresenceKey = (member) =>
+    String(
+      member?.socketId ||
+      member?.user?.email ||
+      member?.user?.id ||
+      member?.user?.name ||
+      'collaborator'
+    );
+
+  const memberPaletteIndexMap = useMemo(() => {
+    const normalizedMembers = [...members].sort((a, b) => {
+      const aJoined = Date.parse(a?.joinedAt || '') || 0;
+      const bJoined = Date.parse(b?.joinedAt || '') || 0;
+      if (aJoined !== bJoined) return aJoined - bJoined;
+      return getMemberPresenceKey(a).localeCompare(getMemberPresenceKey(b));
+    });
+
+    const map = new Map();
+    normalizedMembers.forEach((member, index) => {
+      map.set(getMemberPresenceKey(member), index % COLLABORATOR_PALETTES.length);
+    });
+    return map;
+  }, [members]);
+
+  const getCollaboratorPalette = (member) => {
+    const memberKey = getMemberPresenceKey(member);
+    const mappedIndex = memberPaletteIndexMap.get(memberKey);
+
+    if (Number.isInteger(mappedIndex)) {
+      return COLLABORATOR_PALETTES[mappedIndex];
+    }
+
+    // Fallback keeps colors stable if a cursor payload appears before full presence state.
+    const fallbackIndex = hashFromSeed(memberKey) % COLLABORATOR_PALETTES.length;
+    return COLLABORATOR_PALETTES[fallbackIndex];
+  };
+
+  const buildCollaboratorBadgeText = (member) => {
+    const rawName = String(member?.user?.name || '').trim();
+    const rawEmail = String(member?.user?.email || '').trim();
+
+    if (rawName && rawName.toLowerCase() !== 'collaborator' && rawName.toLowerCase() !== 'unknown') {
+      const firstWord = rawName.split(/\s+/)[0] || rawName;
+      return firstWord.length > 12 ? `${firstWord.slice(0, 11)}…` : firstWord;
+    }
+
+    if (rawEmail.includes('@')) {
+      const localPart = rawEmail.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '') || 'user';
+      return localPart.length > 12 ? `${localPart.slice(0, 11)}…` : localPart;
+    }
+
+    return 'Collaborator';
+  };
+
+  const ensurePresenceStyleSheet = () => {
+    if (presenceStyleElRef.current) return presenceStyleElRef.current;
+
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-collab-presence-styles', 'true');
+    document.head.appendChild(styleEl);
+    presenceStyleElRef.current = styleEl;
+    return styleEl;
+  };
+
+  const ensureCollaboratorClasses = (member) => {
+    const memberKey = getMemberPresenceKey(member);
+    const palette = getCollaboratorPalette(member);
+    const cacheKey = `${memberKey}:${palette.id}`;
+    const cached = presenceClassCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+
+    const suffix = `u${nextPresenceStyleIdRef.current}`;
+    nextPresenceStyleIdRef.current += 1;
+    const lineClass = `remote-cursor-line-${suffix}`;
+    const labelClass = `remote-cursor-label-${suffix}`;
+    const caretClass = `remote-cursor-caret-${suffix}`;
+
+    const styleEl = ensurePresenceStyleSheet();
+    styleEl.appendChild(
+      document.createTextNode(`
+        .${lineClass} {
+          background: ${palette.lineBg} !important;
+          border-left: 2px solid ${palette.lineBorder};
+          border-radius: 6px;
+        }
+
+        .${labelClass} {
+          display: inline-block;
+          color: ${palette.labelText};
+          background: ${palette.labelBg};
+          border: 1px solid ${palette.lineBorder};
+          box-shadow: 0 6px 16px ${palette.caretGlow};
+          border-radius: 999px;
+          padding: 2px 7px;
+          margin-left: 8px;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          line-height: 1;
+          white-space: nowrap;
+        }
+
+        .${caretClass} {
+          display: inline-block;
+          width: 2px;
+          height: 1.15em;
+          margin-right: 1px;
+          border-radius: 999px;
+          vertical-align: text-top;
+          background: ${palette.caret};
+          box-shadow: 0 0 10px ${palette.caretGlow};
+        }
+      `)
+    );
+
+    const result = { lineClass, labelClass, caretClass };
+    presenceClassCacheRef.current.set(cacheKey, result);
+    return result;
+  };
+
+  const getOrCreateGuestSeed = () => {
+    const storageKey = 'collabGuestSeed';
+    const fallbackSeed = `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    try {
+      const existing = localStorage.getItem(storageKey);
+      if (existing && existing.trim()) return existing;
+      localStorage.setItem(storageKey, fallbackSeed);
+      return fallbackSeed;
+    } catch {
+      return fallbackSeed;
+    }
   };
 
   const currentUser = useMemo(() => {
-    const fallback = { id: 1, name: 'Guest User', email: null };
+    const guestSeed = getOrCreateGuestSeed();
+    const guestTag = guestSeed.replace('guest-', '').slice(0, 6) || 'user';
+    const fallback = {
+      id: guestSeed,
+      numericId: stablePositiveIntFromSeed(guestSeed),
+      name: `Guest ${guestTag}`,
+      email: null,
+    };
     const raw = localStorage.getItem('authUser');
     if (!raw) return fallback;
 
     try {
       const parsed = JSON.parse(raw);
-      const normalizedId = toPositiveInt(parsed?.id) ?? 1;
+      const email = parsed?.email || parsed?.user_metadata?.email || null;
+      const identitySeed = parsed?.id || email || parsed?.name || guestSeed;
+      const normalizedId = toPositiveInt(parsed?.id) ?? stablePositiveIntFromSeed(identitySeed);
       return {
-        id: normalizedId,
+        id: String(identitySeed),
+        numericId: normalizedId,
         name:
           `${parsed?.firstName || ''} ${parsed?.lastName || ''}`.trim() ||
           parsed?.name ||
-          parsed?.email ||
+          email ||
           'Guest User',
-        email: parsed?.email || parsed?.user_metadata?.email || null,
+        email,
       };
     } catch {
       return fallback;
@@ -103,11 +314,75 @@ function CollabRoom() {
 
     const remoteMembers = members.filter((member) => member.socketId !== mySocketIdRef.current);
     const nextDecorations = [];
+    const nextWidgetIds = new Set();
+
+    const upsertCursorWidget = ({ member, position, labelClass, initial }) => {
+      const widgetId = `collab-cursor-widget-${member.socketId}`;
+      nextWidgetIds.add(widgetId);
+
+      const existing = cursorWidgetsRef.current.get(widgetId);
+      if (existing) {
+        existing.node.className = `remote-cursor-initial ${labelClass}`;
+        existing.node.textContent = initial;
+        existing.setPosition(position);
+        editor.layoutContentWidget(existing.widget);
+        return;
+      }
+
+      const node = document.createElement('div');
+      node.className = `remote-cursor-initial ${labelClass}`;
+      node.textContent = initial;
+
+      let currentPosition = position;
+      const widget = {
+        getId: () => widgetId,
+        getDomNode: () => node,
+        getPosition: () => ({
+          position: currentPosition,
+          preference: [monaco.editor.ContentWidgetPositionPreference.ABOVE],
+        }),
+        allowEditorOverflow: true,
+        suppressMouseDown: true,
+      };
+
+      const setPosition = (nextPosition) => {
+        currentPosition = nextPosition;
+      };
+
+      editor.addContentWidget(widget);
+      cursorWidgetsRef.current.set(widgetId, {
+        widget,
+        node,
+        setPosition,
+      });
+    };
+
+    const pruneStaleCursorWidgets = () => {
+      cursorWidgetsRef.current.forEach((entry, widgetId) => {
+        if (nextWidgetIds.has(widgetId)) return;
+        editor.removeContentWidget(entry.widget);
+        cursorWidgetsRef.current.delete(widgetId);
+      });
+    };
 
     remoteMembers.forEach((member) => {
-      const rawCursor = Number.isInteger(member.cursor) ? member.cursor : 0;
-      const clampedOffset = Math.max(0, Math.min(rawCursor, model.getValueLength()));
-      const position = model.getPositionAt(clampedOffset);
+      const collaboratorClasses = ensureCollaboratorClasses(member);
+      const collaboratorName = member.user?.name || 'Collaborator';
+      const collaboratorBadgeText = buildCollaboratorBadgeText(member);
+      const hasLineColumn =
+        Number.isInteger(member.cursorLine) &&
+        member.cursorLine > 0 &&
+        Number.isInteger(member.cursorColumn) &&
+        member.cursorColumn > 0;
+      if (!hasLineColumn) return;
+
+      const position = {
+        lineNumber: Math.min(member.cursorLine, model.getLineCount()),
+        column: Math.min(
+          member.cursorColumn,
+          model.getLineMaxColumn(Math.min(member.cursorLine, model.getLineCount()))
+        ),
+      };
       if (!position) return;
 
       const lineRange = new monaco.Range(
@@ -121,8 +396,8 @@ function CollabRoom() {
         range: lineRange,
         options: {
           isWholeLine: true,
-          className: 'remote-cursor-line',
-          hoverMessage: { value: `${member.user?.name || 'Collaborator'} cursor` },
+          className: collaboratorClasses.lineClass,
+          hoverMessage: { value: `${collaboratorName} cursor` },
         },
       });
 
@@ -136,20 +411,154 @@ function CollabRoom() {
       nextDecorations.push({
         range: labelRange,
         options: {
-          after: {
-            content: ` ${member.user?.name || 'Collaborator'}`,
-            inlineClassName: 'remote-cursor-label',
+          before: {
+            content: ' ',
+            inlineClassName: collaboratorClasses.caretClass,
           },
         },
+      });
+
+      upsertCursorWidget({
+        member,
+        position,
+        labelClass: collaboratorClasses.labelClass,
+        initial: collaboratorBadgeText,
       });
     });
 
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, nextDecorations);
+    pruneStaleCursorWidgets();
   };
 
   useEffect(() => {
     contentRef.current = content;
   }, [content]);
+
+  const replaceEditorContent = (nextContent) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return false;
+
+    if (model.getValue() === nextContent) return true;
+
+    suppressLocalOpsRef.current = true;
+    model.setValue(nextContent);
+    suppressLocalOpsRef.current = false;
+    return true;
+  };
+
+  const clearAiDecorations = () => {
+    const editor = editorRef.current;
+    if (editor) {
+      aiDecorationsRef.current = editor.deltaDecorations(aiDecorationsRef.current, []);
+    } else {
+      aiDecorationsRef.current = [];
+    }
+
+    if (aiDecorationTimerRef.current) {
+      clearTimeout(aiDecorationTimerRef.current);
+      aiDecorationTimerRef.current = null;
+    }
+  };
+
+  const getChangedLineWindow = (beforeText, afterText) => {
+    const beforeLines = String(beforeText || '').split('\n');
+    const afterLines = String(afterText || '').split('\n');
+
+    let startIndex = 0;
+    while (
+      startIndex < beforeLines.length &&
+      startIndex < afterLines.length &&
+      beforeLines[startIndex] === afterLines[startIndex]
+    ) {
+      startIndex += 1;
+    }
+
+    let beforeEnd = beforeLines.length - 1;
+    let afterEnd = afterLines.length - 1;
+    while (
+      beforeEnd >= startIndex &&
+      afterEnd >= startIndex &&
+      beforeLines[beforeEnd] === afterLines[afterEnd]
+    ) {
+      beforeEnd -= 1;
+      afterEnd -= 1;
+    }
+
+    if (afterEnd < startIndex) {
+      return null;
+    }
+
+    return {
+      startLine: startIndex + 1,
+      endLine: afterEnd + 1,
+    };
+  };
+
+  const highlightAiChangedLines = (beforeText, afterText, forceFallbackWindow = false) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+
+    const window = getChangedLineWindow(beforeText, afterText);
+    const fallbackLine = editor.getPosition()?.lineNumber || 1;
+    const startLineCandidate = window?.startLine || (forceFallbackWindow ? fallbackLine : null);
+    const endLineCandidate = window?.endLine || (forceFallbackWindow ? fallbackLine : null);
+
+    if (!startLineCandidate || !endLineCandidate) {
+      clearAiDecorations();
+      return;
+    }
+
+    const safeStartLine = Math.max(1, Math.min(startLineCandidate, model.getLineCount()));
+    const safeEndLine = Math.max(safeStartLine, Math.min(endLineCandidate, model.getLineCount()));
+
+    aiDecorationsRef.current = editor.deltaDecorations(aiDecorationsRef.current, [
+      {
+        range: new monaco.Range(safeStartLine, 1, safeEndLine, model.getLineMaxColumn(safeEndLine)),
+        options: {
+          isWholeLine: true,
+          className: 'ai-inserted-line',
+          linesDecorationsClassName: 'ai-line-decoration',
+          glyphMarginClassName: 'ai-glyph-marker',
+          glyphMarginHoverMessage: { value: 'AI-applied code' },
+        },
+      },
+    ]);
+
+    if (aiDecorationTimerRef.current) {
+      clearTimeout(aiDecorationTimerRef.current);
+    }
+    aiDecorationTimerRef.current = setTimeout(() => {
+      clearAiDecorations();
+    }, 9000);
+  };
+
+  useEffect(() => {
+    const numericRoomId = Number(roomId);
+    roomIdRef.current = Number.isInteger(numericRoomId) && numericRoomId > 0 ? numericRoomId : null;
+  }, [roomId]);
+
+  useEffect(() => {
+    fileIdRef.current = fileId;
+  }, [fileId]);
+
+  useEffect(() => () => {
+    if (editorRef.current) {
+      cursorWidgetsRef.current.forEach((entry) => {
+        editorRef.current.removeContentWidget(entry.widget);
+      });
+    }
+    clearAiDecorations();
+    cursorWidgetsRef.current.clear();
+
+    if (presenceStyleElRef.current) {
+      presenceStyleElRef.current.remove();
+      presenceStyleElRef.current = null;
+    }
+    presenceClassCacheRef.current.clear();
+  }, []);
 
   useEffect(() => {
     syncRemoteCursorDecorations();
@@ -161,21 +570,29 @@ function CollabRoom() {
     const bootstrapFile = async () => {
       try {
         setErrorMessage('');
+        setIsFileReady(false);
         const numericRoomId = Number(roomId);
         if (!Number.isInteger(numericRoomId) || numericRoomId <= 0) {
           throw new Error('Invalid room id in URL.');
         }
+
+        const applyFileState = (file) => {
+          const nextContent = String(file.content || '');
+          setFilePath(file.path || 'main.js');
+          setLanguage(file.language || inferLanguageFromPath(file.path));
+          setContent(nextContent);
+          contentRef.current = nextContent;
+          setFileId(file.id);
+          setHasUnsavedChanges(false);
+          setIsFileReady(true);
+        };
 
         if (fileIdParam) {
           const res = await fetch(`${apiBaseUrl}/api/rooms/${numericRoomId}/files/${fileIdParam}`);
           const payload = await res.json();
           if (!res.ok) throw new Error(payload.message || 'Failed to load file.');
           if (cancelled) return;
-          setFileId(payload.file.id);
-          setFilePath(payload.file.path || 'main.js');
-          setLanguage(payload.file.language || inferLanguageFromPath(payload.file.path));
-          setContent(payload.file.content || '');
-          setHasUnsavedChanges(false);
+          applyFileState(payload.file);
           return;
         }
 
@@ -192,11 +609,7 @@ function CollabRoom() {
           if (!fileRes.ok) throw new Error(filePayload.message || 'Failed to load file.');
 
           if (cancelled) return;
-          setFileId(filePayload.file.id);
-          setFilePath(filePayload.file.path || 'main.js');
-          setLanguage(filePayload.file.language || inferLanguageFromPath(filePayload.file.path));
-          setContent(filePayload.file.content || '');
-          setHasUnsavedChanges(false);
+          applyFileState(filePayload.file);
           return;
         }
 
@@ -207,7 +620,7 @@ function CollabRoom() {
             path: 'main.js',
             language: 'javascript',
             content: '',
-            userId: currentUser.id,
+            userId: currentUser.numericId,
           }),
         });
 
@@ -215,13 +628,12 @@ function CollabRoom() {
         if (!createRes.ok) throw new Error(createPayload.message || 'Failed to create initial file.');
 
         if (cancelled) return;
-        setFileId(createPayload.file.id);
-        setFilePath(createPayload.file.path || 'main.js');
-        setLanguage(createPayload.file.language || inferLanguageFromPath(createPayload.file.path));
-        setContent(createPayload.file.content || '');
-        setHasUnsavedChanges(false);
+        applyFileState(createPayload.file);
       } catch (error) {
-        if (!cancelled) setErrorMessage(error.message || 'Unable to initialize collaboration file.');
+        if (!cancelled) {
+          setIsFileReady(false);
+          setErrorMessage(error.message || 'Unable to initialize collaboration file.');
+        }
       }
     };
 
@@ -249,11 +661,11 @@ function CollabRoom() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, currentUser.id, fileIdParam, roomId]);
+  }, [apiBaseUrl, currentUser.numericId, fileIdParam, roomId]);
 
   useEffect(() => {
     const numericRoomId = Number(roomId);
-    if (!fileId || !Number.isInteger(numericRoomId) || numericRoomId <= 0) return;
+    if (!isFileReady || !fileId || !Number.isInteger(numericRoomId) || numericRoomId <= 0) return;
 
     const socket = io(apiBaseUrl, {
       transports: ['websocket'],
@@ -264,18 +676,32 @@ function CollabRoom() {
     setStatus('connecting');
 
     socket.on('connect', () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       mySocketIdRef.current = socket.id;
       setStatus('connected');
       socket.emit('room:join', {
         roomId: numericRoomId,
         fileId,
-        user: currentUser,
+        user: {
+          id: currentUser.numericId,
+          name: currentUser.name,
+          email: currentUser.email,
+        },
         initialContent: contentRef.current,
       });
     });
 
     socket.on('disconnect', () => {
-      setStatus('disconnected');
+      setStatus('connecting');
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+      }
+      disconnectTimerRef.current = setTimeout(() => {
+        setStatus('disconnected');
+      }, 90000);
     });
 
     socket.on('room:error', (payload) => {
@@ -283,10 +709,15 @@ function CollabRoom() {
     });
 
     socket.on('room:joined', (payload) => {
-      if (typeof payload.content === 'string' && payload.content !== content) {
-        applyingRemoteRef.current = true;
-        setContent(payload.content);
+      const nextContent = typeof payload?.content === 'string' ? payload.content : null;
+      if (typeof nextContent === 'string' && nextContent !== content) {
+        replaceEditorContent(nextContent);
+        setContent(nextContent);
         setHasUnsavedChanges(false);
+      }
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
       }
 
       setMembers(payload.members || []);
@@ -300,10 +731,26 @@ function CollabRoom() {
         setAiAgents(incomingAgents);
         setSelectedAiAgents((previous) => (previous.length > 0 ? previous : incomingAgents.slice(0, 2)));
       }
+
+      // Refresh local cursor so late joiners receive exact current line/column.
+      setTimeout(() => {
+        emitCursor();
+      }, 0);
+
+      // One-shot hard resync avoids stale/empty payload races for late joiners.
+      socket.emit('editor:resync:request', {
+        roomId: numericRoomId,
+        fileId,
+      });
     });
 
     socket.on('presence:state', (payload) => {
       setMembers(payload.members || []);
+
+      // Membership changes can leave stale cursor placements for new users.
+      setTimeout(() => {
+        emitCursor();
+      }, 0);
     });
 
     socket.on('presence:cursor', (payload) => {
@@ -311,7 +758,14 @@ function CollabRoom() {
 
       setMembers((previousMembers) => {
         const nextMembers = previousMembers.map((member) =>
-          member.socketId === payload.socketId ? { ...member, cursor: payload.cursor } : member
+          member.socketId === payload.socketId
+            ? {
+              ...member,
+              cursor: payload.cursor,
+              cursorLine: payload.cursorLine,
+              cursorColumn: payload.cursorColumn,
+            }
+            : member
         );
 
         if (nextMembers.some((member) => member.socketId === payload.socketId)) {
@@ -322,6 +776,8 @@ function CollabRoom() {
           socketId: payload.socketId,
           user: payload.user,
           cursor: payload.cursor,
+          cursorLine: payload.cursorLine,
+          cursorColumn: payload.cursorColumn,
           joinedAt: new Date().toISOString(),
         }];
       });
@@ -329,7 +785,85 @@ function CollabRoom() {
 
     socket.on('editor:update', (payload) => {
       if (typeof payload?.content !== 'string') return;
-      applyingRemoteRef.current = true;
+
+      const previousContent = editorRef.current?.getModel()?.getValue() ?? contentRef.current;
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+
+      replaceEditorContent(payload.content);
+      setContent(payload.content);
+      setHasUnsavedChanges(false);
+
+      const actorName = String(payload?.by?.name || '').toLowerCase();
+      const isAiAppliedUpdate =
+        payload?.source === 'ai-block-accept' ||
+        payload?.by?.type === 'ai' ||
+        actorName.startsWith('ai ');
+      if (isAiAppliedUpdate) {
+        highlightAiChangedLines(previousContent, payload.content, true);
+      }
+    });
+
+    socket.on('editor:op', (payload) => {
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      const model = editor?.getModel();
+      const changes = Array.isArray(payload?.changes) ? payload.changes : [];
+
+      if (!editor || !monaco || !model || changes.length === 0) return;
+
+      const edits = changes
+        .map((change) => {
+          const rangeOffset = Number.isInteger(change?.rangeOffset) ? change.rangeOffset : null;
+          const rangeLength = Number.isInteger(change?.rangeLength) ? change.rangeLength : null;
+          const text = typeof change?.text === 'string' ? change.text : '';
+          if (rangeOffset === null || rangeLength === null) return null;
+
+          const safeStart = Math.max(0, Math.min(rangeOffset, model.getValueLength()));
+          const safeEnd = Math.max(safeStart, Math.min(safeStart + Math.max(0, rangeLength), model.getValueLength()));
+
+          return {
+            range: new monaco.Range(
+              model.getPositionAt(safeStart).lineNumber,
+              model.getPositionAt(safeStart).column,
+              model.getPositionAt(safeEnd).lineNumber,
+              model.getPositionAt(safeEnd).column,
+            ),
+            text,
+            forceMoveMarkers: true,
+          };
+        })
+        .filter(Boolean);
+
+      if (edits.length === 0) return;
+
+      suppressLocalOpsRef.current = true;
+      model.pushEditOperations([], edits, () => null);
+      suppressLocalOpsRef.current = false;
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+
+      setContent(model.getValue());
+    });
+
+    socket.on('editor:ack', (payload) => {
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+    });
+
+    socket.on('editor:resync', (payload) => {
+      if (typeof payload?.content !== 'string') return;
+
+      if (Number.isInteger(payload?.revision)) {
+        roomRevisionRef.current = payload.revision;
+      }
+
+      replaceEditorContent(payload.content);
       setContent(payload.content);
       setHasUnsavedChanges(false);
     });
@@ -346,6 +880,15 @@ function CollabRoom() {
     socket.on('ai:block:update', (payload) => {
       if (!payload?.block?.id) return;
       setAiBlocks((previous) => previous.map((block) => (block.id === payload.block.id ? payload.block : block)));
+
+      const block = payload.block;
+      if (block?.status !== 'accepted' || typeof block?.proposedContent !== 'string') return;
+
+      const baselineContent = editorRef.current?.getModel()?.getValue() ?? contentRef.current;
+      // Delay slightly so this runs after the corresponding editor:update has been applied.
+      setTimeout(() => {
+        highlightAiChangedLines(baselineContent, block.proposedContent, true);
+      }, 120);
     });
 
     socket.on('ai:block:error', (payload) => {
@@ -355,11 +898,15 @@ function CollabRoom() {
     });
 
     return () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       socket.disconnect();
       socketRef.current = null;
       mySocketIdRef.current = null;
     };
-  }, [apiBaseUrl, currentUser, fileId, roomId]);
+  }, [apiBaseUrl, currentUser, fileId, roomId, isFileReady]);
 
   useEffect(() => () => {
     const editor = editorRef.current;
@@ -382,26 +929,8 @@ function CollabRoom() {
       roomId: Number(roomId),
       fileId,
       cursor: offset || 0,
-    });
-  };
-
-  const onLocalContentChange = (nextContent) => {
-    if (applyingRemoteRef.current) {
-      applyingRemoteRef.current = false;
-      setContent(nextContent);
-      return;
-    }
-
-    setContent(nextContent);
-    setHasUnsavedChanges(true);
-
-    const socket = socketRef.current;
-    if (!socket) return;
-
-    socket.emit('editor:update', {
-      roomId: Number(roomId),
-      fileId,
-      content: nextContent,
+      cursorLine: position.lineNumber,
+      cursorColumn: position.column,
     });
   };
 
@@ -452,29 +981,30 @@ function CollabRoom() {
       let payload;
 
       try {
+        const formBody = new URLSearchParams({
+          content,
+          language,
+          userId: String(currentUser.numericId),
+        });
+
+        // Prefer POST save endpoint to avoid PATCH preflight issues in some deployments.
+        res = await fetch(`${patchUrl}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody.toString(),
+        });
+
+        payload = await res.json();
+      } catch (networkError) {
+        // Fallback to PATCH for environments where /save endpoint is unavailable.
         res = await fetch(patchUrl, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             content,
             language,
-            userId: currentUser.id,
+            userId: currentUser.numericId,
           }),
-        });
-
-        payload = await res.json();
-      } catch (networkError) {
-        // Fallback for browsers/environments where PATCH preflight is blocked.
-        const formBody = new URLSearchParams({
-          content,
-          language,
-          userId: String(currentUser.id),
-        });
-
-        res = await fetch(`${patchUrl}/save`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formBody.toString(),
         });
 
         payload = await res.json();
@@ -490,7 +1020,7 @@ function CollabRoom() {
             content,
             language,
             source,
-            userId: currentUser.id,
+            userId: currentUser.numericId,
           }),
         });
       }
@@ -549,11 +1079,103 @@ function CollabRoom() {
     }
   };
 
+  const saveProjectToShelf = async () => {
+    const normalizedRoomId = Number(roomId);
+    if (!Number.isInteger(normalizedRoomId) || normalizedRoomId <= 0) return;
+
+    setProjectSaveStatus('saving');
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userKey: currentUser.id,
+          userId: currentUser.numericId,
+          roomId: normalizedRoomId,
+          title: roomName || `Room ${normalizedRoomId}`,
+        }),
+      });
+
+      const rawText = await res.text();
+      let payload = null;
+      try {
+        payload = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        payload = null;
+      }
+
+      if (!res.ok) {
+        const isHtmlResponse = typeof rawText === 'string' && rawText.trim().startsWith('<!DOCTYPE');
+        if (res.status === 404 || isHtmlResponse) {
+          throw new Error('Save Project endpoint is not available on the deployed backend yet. Redeploy backend and try again.');
+        }
+        throw new Error(payload?.message || `Failed to save project (${res.status}).`);
+      }
+
+      setProjectSaveStatus('saved');
+      setTimeout(() => setProjectSaveStatus('idle'), 1200);
+    } catch (error) {
+      setProjectSaveStatus('idle');
+      setErrorMessage(error.message || 'Unable to save project.');
+    }
+  };
+
+  const copyRoomCode = async () => {
+    const codeToCopy = String(roomCode || '').trim();
+    if (!codeToCopy) return;
+
+    try {
+      await navigator.clipboard.writeText(codeToCopy);
+      setCopyStatus('copied');
+      setTimeout(() => setCopyStatus('idle'), 1200);
+    } catch {
+      setCopyStatus('failed');
+      setTimeout(() => setCopyStatus('idle'), 1500);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRoomMeta = async () => {
+      const numericRoomId = Number(roomId);
+      if (!Number.isInteger(numericRoomId) || numericRoomId <= 0) return;
+
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/rooms/${numericRoomId}`);
+        const payload = await res.json();
+        if (!res.ok || cancelled) return;
+
+        setRoomName(payload?.room?.name || `Realtime Room #${numericRoomId}`);
+        setRoomCode(payload?.room?.roomCode || '');
+      } catch {
+        if (cancelled) return;
+        setRoomName(`Realtime Room #${numericRoomId}`);
+      }
+    };
+
+    loadRoomMeta();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, roomId]);
+
   return (
     <div className="collab-shell">
       <header className="collab-header">
         <div>
-          <h1>Realtime Room #{roomId}</h1>
+          <h1>{roomName} #{roomId}</h1>
+          <p className="room-share-row">
+            Share code: <strong>{roomCode || `ID-${roomId}`}</strong>
+            <button
+              type="button"
+              className="room-code-copy-btn"
+              onClick={copyRoomCode}
+              disabled={!roomCode}
+            >
+              {copyStatus === 'copied' ? 'Copied' : copyStatus === 'failed' ? 'Copy failed' : 'Copy'}
+            </button>
+          </p>
           <p>
             File: <strong>{filePath}</strong> ({language})
           </p>
@@ -601,6 +1223,13 @@ function CollabRoom() {
           <button type="button" onClick={runCode} disabled={!fileId || runStatus === 'running'}>
             {runStatus === 'running' ? 'Running...' : 'Run'}
           </button>
+          <button
+            type="button"
+            onClick={saveProjectToShelf}
+            disabled={projectSaveStatus === 'saving'}
+          >
+            {projectSaveStatus === 'saving' ? 'Saving Project...' : projectSaveStatus === 'saved' ? 'Project Saved' : 'Save Project'}
+          </button>
           <Link to="/">Back Home</Link>
         </div>
       </header>
@@ -616,12 +1245,11 @@ function CollabRoom() {
                 <span className="member-label">
                   <span
                     className="member-dot"
-                    style={{ backgroundColor: colorFromSeed(member.user?.email || member.socketId) }}
+                    style={{ backgroundColor: getCollaboratorPalette(member).dot }}
                   />
                   {member.user?.name || 'Unknown'}
-                  {member.user?.id === currentUser.id ? ' (you)' : ''}
                 </span>
-                <small>cursor {member.cursor ?? 0}</small>
+                <small>cursor {Number.isInteger(member.cursor) ? member.cursor : '-'}</small>
               </li>
             ))}
           </ul>
@@ -643,7 +1271,7 @@ function CollabRoom() {
             height="72vh"
             theme="vs-dark"
             language={language}
-            value={content}
+            defaultValue={content}
             onMount={(editorInstance, monaco) => {
               editorRef.current = editorInstance;
               monacoRef.current = monaco;
@@ -651,10 +1279,38 @@ function CollabRoom() {
               editorInstance.onDidChangeCursorPosition(() => {
                 emitCursor();
               });
+
+              editorInstance.onDidChangeModelContent((event) => {
+                if (suppressLocalOpsRef.current) return;
+
+                const latest = editorInstance.getValue();
+                setContent(latest);
+                setHasUnsavedChanges(true);
+
+                const socket = socketRef.current;
+                const currentRoomId = roomIdRef.current;
+                const currentFileId = fileIdRef.current;
+
+                if (!socket || !currentRoomId || !currentFileId) return;
+
+                const changes = (event.changes || []).map((change) => ({
+                  rangeOffset: change.rangeOffset,
+                  rangeLength: change.rangeLength,
+                  text: change.text,
+                }));
+
+                if (changes.length === 0) return;
+
+                socket.emit('editor:op', {
+                  roomId: currentRoomId,
+                  fileId: currentFileId,
+                  changes,
+                });
+              });
             }}
-            onChange={(nextValue) => onLocalContentChange(nextValue || '')}
             options={{
               minimap: { enabled: false },
+              glyphMargin: true,
               fontSize: 14,
               lineNumbersMinChars: 3,
               automaticLayout: true,

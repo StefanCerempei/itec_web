@@ -22,12 +22,21 @@ const ROOMS_TABLE = process.env.COLLAB_ROOMS_TABLE || 'rooms';
 const ROOM_MEMBERS_TABLE = process.env.COLLAB_ROOM_MEMBERS_TABLE || 'roommembers';
 const ROOM_FILES_TABLE = process.env.COLLAB_ROOM_FILES_TABLE || 'roomfiles';
 const EDIT_SNAPSHOTS_TABLE = process.env.COLLAB_EDIT_SNAPSHOTS_TABLE || 'editsnapshots';
+const SAVED_PROJECTS_TABLE = process.env.COLLAB_SAVED_PROJECTS_TABLE || 'savedprojects';
 const allowedOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const isDev = process.env.NODE_ENV !== 'production';
+const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    ...(process.env.FRONTEND_URLS || '').split(',')
+]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+const configuredOriginSet = new Set(configuredOrigins);
 
 const isAllowedOrigin = (origin) => {
     if (!origin) return true;
     if (isDev) return true;
+    if (configuredOriginSet.has(origin)) return true;
     return allowedOriginRegex.test(origin);
 };
 
@@ -53,6 +62,12 @@ const io = new Server(httpServer, {
             return callback(new Error(`Socket origin not allowed: ${origin}`));
         },
         credentials: true
+    },
+    pingInterval: 25000,
+    pingTimeout: 120000,
+    connectionStateRecovery: {
+        maxDisconnectionDuration: 5 * 60 * 1000,
+        skipMiddlewares: true
     }
 });
 
@@ -62,6 +77,21 @@ const collabState = {
 };
 
 const DEFAULT_AI_AGENTS = ['Planner', 'Refactor', 'BugFixer', 'Performance'];
+const MAX_COLLABORATORS_PER_ROOM = 4;
+const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
+const pendingMemberRemovals = new Map();
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ROOM_CODE_LENGTH = 8;
+
+const getUserPresenceKey = (user = {}) => {
+    const email = String(user.email || '').trim().toLowerCase();
+    if (email) return `email:${email}`;
+
+    const id = asPositiveInt(user.id);
+    if (id) return `id:${id}`;
+
+    return null;
+};
 
 const getAiAgents = () => {
     const modelBackedAgents = (configuredModels || []).map((model, index) => ({
@@ -86,6 +116,7 @@ const ensureRealtimeRoom = (roomId, fileId) => {
     if (!collabState.rooms.has(key)) {
         collabState.rooms.set(key, {
             content: '',
+            revision: 0,
             members: new Map(),
             aiBlocks: new Map(),
             nextAiBlockId: 1
@@ -98,7 +129,9 @@ const serializeMembers = (membersMap) =>
     Array.from(membersMap.values()).map((m) => ({
         socketId: m.socketId,
         user: m.user,
-        cursor: m.cursor || 0,
+        cursor: Number.isInteger(m.cursor) ? m.cursor : null,
+        cursorLine: Number.isInteger(m.cursorLine) ? m.cursorLine : null,
+        cursorColumn: Number.isInteger(m.cursorColumn) ? m.cursorColumn : null,
         joinedAt: m.joinedAt
     }));
 
@@ -133,6 +166,28 @@ const buildProposedContent = ({ mode, currentContent, suggestion }) => {
 
     const separator = currentContent.endsWith('\n') ? '\n' : '\n\n';
     return `${currentContent}${separator}${suggestion}`;
+};
+
+const applyTextChanges = (baseContent, changes) => {
+    if (!Array.isArray(changes) || changes.length === 0) return baseContent;
+
+    const normalizedChanges = changes
+        .map((change) => ({
+            rangeOffset: Number.isInteger(change?.rangeOffset) ? change.rangeOffset : 0,
+            rangeLength: Number.isInteger(change?.rangeLength) ? change.rangeLength : 0,
+            text: typeof change?.text === 'string' ? change.text : ''
+        }))
+        .sort((a, b) => b.rangeOffset - a.rangeOffset);
+
+    let content = typeof baseContent === 'string' ? baseContent : '';
+
+    for (const change of normalizedChanges) {
+        const start = Math.max(0, Math.min(change.rangeOffset, content.length));
+        const end = Math.max(start, Math.min(start + Math.max(0, change.rangeLength), content.length));
+        content = `${content.slice(0, start)}${change.text}${content.slice(end)}`;
+    }
+
+    return content;
 };
 
 // Rate limiting
@@ -190,6 +245,13 @@ io.on('connection', (socket) => {
         const channel = `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
 
+        if (!room.members.has(socket.id) && room.members.size >= MAX_COLLABORATORS_PER_ROOM) {
+            socket.emit('room:error', {
+                message: `Room is full. Maximum ${MAX_COLLABORATORS_PER_ROOM} collaborators are allowed.`
+            });
+            return;
+        }
+
         // Keep in-memory room state aligned with persisted file content loaded by the first participant.
         if (!room.content && initialContent && initialContent.length > 0) {
             room.content = initialContent;
@@ -205,10 +267,35 @@ io.on('connection', (socket) => {
             email: user.email || null
         };
 
+        const reconnectingUserKey = getUserPresenceKey(socket.data.user);
+
+        if (reconnectingUserKey) {
+            for (const [existingSocketId, existingMember] of room.members.entries()) {
+                if (existingSocketId === socket.id) continue;
+                if (getUserPresenceKey(existingMember.user) !== reconnectingUserKey) continue;
+
+                room.members.delete(existingSocketId);
+
+                const pendingTimer = pendingMemberRemovals.get(existingSocketId);
+                if (pendingTimer) {
+                    clearTimeout(pendingTimer);
+                    pendingMemberRemovals.delete(existingSocketId);
+                }
+            }
+        }
+
+        const selfPendingTimer = pendingMemberRemovals.get(socket.id);
+        if (selfPendingTimer) {
+            clearTimeout(selfPendingTimer);
+            pendingMemberRemovals.delete(socket.id);
+        }
+
         room.members.set(socket.id, {
             socketId: socket.id,
             user: socket.data.user,
-            cursor: 0,
+            cursor: null,
+            cursorLine: null,
+            cursorColumn: null,
             joinedAt: new Date().toISOString()
         });
 
@@ -216,6 +303,7 @@ io.on('connection', (socket) => {
             roomId,
             fileId,
             content: room.content,
+            revision: room.revision || 0,
             members: serializeMembers(room.members),
             aiBlocks: serializeAiBlocks(room.aiBlocks),
             aiAgents: getAiAgents()
@@ -238,13 +326,66 @@ io.on('connection', (socket) => {
         const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
         const room = ensureRealtimeRoom(roomId, fileId);
         room.content = content;
+        room.revision = (room.revision || 0) + 1;
 
         socket.to(channel).emit('editor:update', {
             roomId,
             fileId,
             content,
+            revision: room.revision,
             by: socket.data.user || null,
             at: new Date().toISOString()
+        });
+
+        socket.emit('editor:ack', {
+            roomId,
+            fileId,
+            revision: room.revision
+        });
+    });
+
+    socket.on('editor:op', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+        const changes = Array.isArray(payload.changes) ? payload.changes : [];
+
+        if (!roomId || !fileId || changes.length === 0) return;
+
+        const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
+        const room = ensureRealtimeRoom(roomId, fileId);
+
+        room.content = applyTextChanges(room.content, changes);
+        room.revision = (room.revision || 0) + 1;
+
+        socket.to(channel).emit('editor:op', {
+            roomId,
+            fileId,
+            changes,
+            revision: room.revision,
+            by: socket.data.user || null,
+            at: new Date().toISOString()
+        });
+
+        socket.emit('editor:ack', {
+            roomId,
+            fileId,
+            revision: room.revision
+        });
+    });
+
+    socket.on('editor:resync:request', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+
+        if (!roomId || !fileId) return;
+
+        const room = ensureRealtimeRoom(roomId, fileId);
+        socket.emit('editor:resync', {
+            roomId,
+            fileId,
+            content: room.content,
+            revision: room.revision || 0,
+            source: 'join-resync'
         });
     });
 
@@ -252,6 +393,8 @@ io.on('connection', (socket) => {
         const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
         const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
         const cursor = Number.isInteger(payload.cursor) ? payload.cursor : 0;
+        const cursorLine = Number.isInteger(payload.cursorLine) && payload.cursorLine > 0 ? payload.cursorLine : null;
+        const cursorColumn = Number.isInteger(payload.cursorColumn) && payload.cursorColumn > 0 ? payload.cursorColumn : null;
 
         if (!roomId || !fileId) return;
 
@@ -262,13 +405,19 @@ io.on('connection', (socket) => {
         if (!member) return;
 
         member.cursor = Math.max(0, cursor);
+        if (cursorLine && cursorColumn) {
+            member.cursorLine = cursorLine;
+            member.cursorColumn = cursorColumn;
+        }
 
         socket.to(channel).emit('presence:cursor', {
             roomId,
             fileId,
             socketId: socket.id,
             user: member.user,
-            cursor: member.cursor
+            cursor: member.cursor,
+            cursorLine: member.cursorLine,
+            cursorColumn: member.cursorColumn
         });
     });
 
@@ -436,22 +585,30 @@ io.on('connection', (socket) => {
         const channel = socket.data.channel;
         if (!roomId || !fileId || !channel) return;
 
-        const key = getRoomKey(roomId, fileId);
-        const room = collabState.rooms.get(key);
-        if (!room) return;
+        if (pendingMemberRemovals.has(socket.id)) return;
 
-        room.members.delete(socket.id);
+        const removalTimer = setTimeout(() => {
+            pendingMemberRemovals.delete(socket.id);
 
-        if (room.members.size === 0) {
-            collabState.rooms.delete(key);
-            return;
-        }
+            const key = getRoomKey(roomId, fileId);
+            const room = collabState.rooms.get(key);
+            if (!room) return;
 
-        io.to(channel).emit('presence:state', {
-            roomId,
-            fileId,
-            members: serializeMembers(room.members)
-        });
+            room.members.delete(socket.id);
+
+            if (room.members.size === 0) {
+                collabState.rooms.delete(key);
+                return;
+            }
+
+            io.to(channel).emit('presence:state', {
+                roomId,
+                fileId,
+                members: serializeMembers(room.members)
+            });
+        }, DISCONNECT_GRACE_MS);
+
+        pendingMemberRemovals.set(socket.id, removalTimer);
     });
 });
 
@@ -522,9 +679,10 @@ const executeProcess = ({ command, args, stdin, timeoutMs }) =>
     });
 
 const updateRoomFileRecord = async ({ roomId, fileId, content, language, userId }) => {
+    const validUserId = await resolveExistingUserId(userId);
     const patch = {
         updatedat: new Date().toISOString(),
-        updatedby: asPositiveInt(userId)
+        updatedby: validUserId
     };
 
     if (typeof content === 'string') patch.content = content;
@@ -539,6 +697,98 @@ const updateRoomFileRecord = async ({ roomId, fileId, content, language, userId 
         .maybeSingle();
 
     return { data, error };
+};
+
+const resolveExistingUserId = async (candidateUserId) => {
+    const normalized = asPositiveInt(candidateUserId);
+    if (!normalized) return null;
+
+    const { data: user, error } = await supabase
+        .from(USERS_TABLE)
+        .select('id')
+        .eq('id', normalized)
+        .maybeSingle();
+
+    if (error || !user) return null;
+    return normalized;
+};
+
+const normalizeUserKey = (value) => {
+    const userKey = String(value || '').trim().toLowerCase();
+    return userKey || null;
+};
+
+const generateRoomCode = () => {
+    let next = '';
+    for (let i = 0; i < ROOM_CODE_LENGTH; i += 1) {
+        const idx = Math.floor(Math.random() * ROOM_CODE_ALPHABET.length);
+        next += ROOM_CODE_ALPHABET[idx];
+    }
+    return next;
+};
+
+const getUniqueRoomCode = async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+        const candidate = generateRoomCode();
+        const { data, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id')
+            .eq('roomcode', candidate)
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return candidate;
+    }
+
+    throw new Error('Unable to generate unique room code. Please try again.');
+};
+
+const resolveRoomFromToken = async (roomToken) => {
+    const normalizedToken = String(roomToken || '').trim();
+    if (!normalizedToken) return { room: null, error: null };
+
+    const numericRoomId = asPositiveInt(normalizedToken);
+    if (numericRoomId) {
+        const { data, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash')
+            .eq('id', numericRoomId)
+            .maybeSingle();
+        return { room: data || null, error: error || null };
+    }
+
+    const code = normalizedToken.toUpperCase();
+    const { data, error } = await supabase
+        .from(ROOMS_TABLE)
+        .select('id,name,roomcode,passwordhash')
+        .eq('roomcode', code)
+        .maybeSingle();
+    return { room: data || null, error: error || null };
+};
+
+const getRoomActiveParticipantCounts = () => {
+    const perRoomSocketSets = new Map();
+
+    for (const [roomKey, roomState] of collabState.rooms.entries()) {
+        const rawRoomId = String(roomKey || '').split(':')[0];
+        const roomId = asPositiveInt(rawRoomId);
+        if (!roomId) continue;
+
+        if (!perRoomSocketSets.has(roomId)) {
+            perRoomSocketSets.set(roomId, new Set());
+        }
+
+        const socketSet = perRoomSocketSets.get(roomId);
+        for (const socketId of roomState.members.keys()) {
+            socketSet.add(socketId);
+        }
+    }
+
+    const counts = new Map();
+    for (const [roomId, socketSet] of perRoomSocketSets.entries()) {
+        counts.set(roomId, socketSet.size);
+    }
+    return counts;
 };
 
 // Auth endpoints backed by custom users table.
@@ -675,24 +925,51 @@ app.post('/api/auth/signin', async (req, res, next) => {
 // Create a collaboration room.
 app.post('/api/rooms', async (req, res, next) => {
     try {
-        const { name, userId } = req.body || {};
+        const { name, userId, password } = req.body || {};
         const normalizedName = String(name || '').trim();
+        const normalizedPassword = String(password || '').trim();
 
         if (!normalizedName) {
             return res.status(400).json({ message: 'Room name is required.' });
         }
 
-        const ownerId = asPositiveInt(userId);
+        if (normalizedPassword && normalizedPassword.length < 4) {
+            return res.status(400).json({ message: 'Room password must have at least 4 characters.' });
+        }
+
+        const roomCode = await getUniqueRoomCode();
+        const passwordHash = normalizedPassword ? await bcrypt.hash(normalizedPassword, 10) : null;
+
+        let ownerId = asPositiveInt(userId);
+
+        if (ownerId) {
+            const { data: owner, error: ownerLookupError } = await supabase
+                .from(USERS_TABLE)
+                .select('id')
+                .eq('id', ownerId)
+                .maybeSingle();
+
+            if (ownerLookupError) {
+                return res.status(400).json({ message: ownerLookupError.message, code: ownerLookupError.code });
+            }
+
+            if (!owner) {
+                // If the auth identity does not exist in USERS_TABLE, keep room creation working.
+                ownerId = null;
+            }
+        }
 
         const { data: room, error: roomError } = await supabase
             .from(ROOMS_TABLE)
             .insert({
                 name: normalizedName,
-                createdby: ownerId,
+                roomcode: roomCode,
+                passwordhash: passwordHash,
+                createdby: ownerId || null,
                 createdat: new Date().toISOString(),
                 updatedat: new Date().toISOString()
             })
-            .select('*')
+            .select('id,name,roomcode,createdby,createdat,updatedat')
             .single();
 
         if (roomError) {
@@ -716,14 +993,59 @@ app.post('/api/rooms', async (req, res, next) => {
     }
 });
 
-// Join an existing room.
-app.post('/api/rooms/:roomId/join', async (req, res, next) => {
+const handleJoinRoom = async (req, res, next) => {
     try {
-        const roomId = asPositiveInt(req.params.roomId);
-        const userId = asPositiveInt(req.body?.userId);
+        const roomToken = req.body?.roomToken || req.params.roomId;
+        const joinPassword = String(req.body?.password || '').trim();
+        let userId = asPositiveInt(req.body?.userId);
 
-        if (!roomId || !userId) {
-            return res.status(400).json({ message: 'Valid roomId and userId are required.' });
+        if (!roomToken) {
+            return res.status(400).json({ message: 'Room ID or room code is required.' });
+        }
+
+        const { room, error: roomLookupError } = await resolveRoomFromToken(roomToken);
+        if (roomLookupError) {
+            return res.status(400).json({ message: roomLookupError.message, code: roomLookupError.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        const roomId = asPositiveInt(room.id);
+        if (!roomId) {
+            return res.status(400).json({ message: 'Invalid room id.' });
+        }
+
+        if (room.passwordhash) {
+            if (!joinPassword) {
+                return res.status(401).json({ message: 'Room password is required.' });
+            }
+            const passwordMatch = await bcrypt.compare(joinPassword, String(room.passwordhash));
+            if (!passwordMatch) {
+                return res.status(401).json({ message: 'Invalid room password.' });
+            }
+        }
+
+        if (!userId) {
+            return res.status(200).json({ message: 'Joined room as guest (no userId provided).', roomId, roomCode: room.roomcode || null });
+        }
+
+        const { data: joiningUser, error: joiningUserLookupError } = await supabase
+            .from(USERS_TABLE)
+            .select('id')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (joiningUserLookupError) {
+            return res.status(400).json({ message: joiningUserLookupError.message, code: joiningUserLookupError.code });
+        }
+
+        if (!joiningUser) {
+            return res.status(200).json({
+                message: 'Joined room as guest (user not found in users table).',
+                roomId,
+                roomCode: room.roomcode || null
+            });
         }
 
         const { error } = await supabase
@@ -739,7 +1061,292 @@ app.post('/api/rooms/:roomId/join', async (req, res, next) => {
             return res.status(400).json({ message: error.message, code: error.code });
         }
 
-        return res.status(200).json({ message: 'Joined room successfully.' });
+        return res.status(200).json({ message: 'Joined room successfully.', roomId, roomCode: room.roomcode || null });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Join an existing room using numeric ID, or alphanumeric room code in request body.
+app.post('/api/rooms/:roomId/join', handleJoinRoom);
+app.post('/api/rooms/join', handleJoinRoom);
+
+// List user's recent sessions with live participant counts.
+app.get('/api/rooms/sessions', async (req, res, next) => {
+    try {
+        const userId = asPositiveInt(req.query?.userId);
+        if (!userId) {
+            return res.status(400).json({ message: 'Valid userId query parameter is required.' });
+        }
+
+        const roomIds = new Set();
+
+        const { data: ownedRooms, error: ownedError } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id')
+            .eq('createdby', userId)
+            .limit(100);
+        if (ownedError) {
+            return res.status(400).json({ message: ownedError.message, code: ownedError.code });
+        }
+        (ownedRooms || []).forEach((room) => {
+            const id = asPositiveInt(room?.id);
+            if (id) roomIds.add(id);
+        });
+
+        const { data: memberRows, error: memberError } = await supabase
+            .from(ROOM_MEMBERS_TABLE)
+            .select('roomid')
+            .eq('userid', userId)
+            .limit(200);
+        if (memberError) {
+            return res.status(400).json({ message: memberError.message, code: memberError.code });
+        }
+        (memberRows || []).forEach((row) => {
+            const id = asPositiveInt(row?.roomid);
+            if (id) roomIds.add(id);
+        });
+
+        // Include currently active rooms in realtime memory for users that are guests (not persisted in roommembers).
+        for (const [roomKey, roomState] of collabState.rooms.entries()) {
+            const rawRoomId = String(roomKey || '').split(':')[0];
+            const roomId = asPositiveInt(rawRoomId);
+            if (!roomId) continue;
+
+            const hasMatchingLiveMember = Array.from(roomState.members.values()).some(
+                (member) => asPositiveInt(member?.user?.id) === userId
+            );
+            if (hasMatchingLiveMember) {
+                roomIds.add(roomId);
+            }
+        }
+
+        if (roomIds.size === 0) {
+            return res.status(200).json({ sessions: [] });
+        }
+
+        const roomIdList = Array.from(roomIds);
+        const { data: rooms, error: roomsError } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,createdby,updatedat,passwordhash')
+            .in('id', roomIdList)
+            .order('updatedat', { ascending: false })
+            .limit(25);
+
+        if (roomsError) {
+            return res.status(400).json({ message: roomsError.message, code: roomsError.code });
+        }
+
+        const activeCounts = getRoomActiveParticipantCounts();
+        const sessions = (rooms || []).map((room) => {
+            const roomId = asPositiveInt(room?.id);
+            const activeParticipants = roomId ? activeCounts.get(roomId) || 0 : 0;
+            return {
+                id: roomId,
+                name: room?.name || `Room ${roomId}`,
+                roomCode: room?.roomcode || null,
+                passwordProtected: Boolean(room?.passwordhash),
+                isOwner: asPositiveInt(room?.createdby) === userId,
+                activeParticipants,
+                updatedAt: room?.updatedat || null
+            };
+        });
+
+        return res.status(200).json({ sessions });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Save a room to user's project shelf.
+app.post('/api/projects', async (req, res, next) => {
+    try {
+        const userKey = normalizeUserKey(req.body?.userKey);
+        const userId = asPositiveInt(req.body?.userId);
+        const validUserId = await resolveExistingUserId(userId);
+        const roomId = asPositiveInt(req.body?.roomId);
+        const title = String(req.body?.title || '').trim();
+
+        if (!userKey) {
+            return res.status(400).json({ message: 'userKey is required.' });
+        }
+        if (!roomId) {
+            return res.status(400).json({ message: 'Valid roomId is required.' });
+        }
+
+        const { data: room, error: roomError } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash,updatedat')
+            .eq('id', roomId)
+            .maybeSingle();
+
+        if (roomError) {
+            return res.status(400).json({ message: roomError.message, code: roomError.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        const now = new Date().toISOString();
+        const projectPayload = {
+            userkey: userKey,
+            userid: validUserId,
+            roomid: roomId,
+            title: title || room.name || `Room ${roomId}`,
+            updatedat: now,
+            createdat: now,
+        };
+
+        const { data: project, error: projectError } = await supabase
+            .from(SAVED_PROJECTS_TABLE)
+            .upsert(projectPayload, { onConflict: 'userkey,roomid' })
+            .select('*')
+            .single();
+
+        if (projectError) {
+            return res.status(400).json({ message: projectError.message, code: projectError.code });
+        }
+
+        return res.status(201).json({
+            project: {
+                id: project.id,
+                roomId: room.id,
+                roomCode: room.roomcode || null,
+                title: project.title,
+                roomName: room.name,
+                passwordProtected: Boolean(room.passwordhash),
+                updatedAt: project.updatedat || room.updatedat || null,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// List saved projects for a user.
+app.get('/api/projects', async (req, res, next) => {
+    try {
+        const userKey = normalizeUserKey(req.query?.userKey);
+        if (!userKey) {
+            return res.status(400).json({ message: 'userKey query parameter is required.' });
+        }
+
+        const { data: projects, error } = await supabase
+            .from(SAVED_PROJECTS_TABLE)
+            .select('id,roomid,title,updatedat,createdat')
+            .eq('userkey', userKey)
+            .order('updatedat', { ascending: false })
+            .limit(40);
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+
+        const roomIds = (projects || []).map((project) => asPositiveInt(project.roomid)).filter(Boolean);
+        let roomMap = new Map();
+
+        if (roomIds.length > 0) {
+            const { data: rooms, error: roomsError } = await supabase
+                .from(ROOMS_TABLE)
+                .select('id,name,roomcode,passwordhash,updatedat')
+                .in('id', roomIds);
+
+            if (roomsError) {
+                return res.status(400).json({ message: roomsError.message, code: roomsError.code });
+            }
+
+            roomMap = new Map((rooms || []).map((room) => [asPositiveInt(room.id), room]));
+        }
+
+        const result = (projects || [])
+            .map((project) => {
+                const projectRoomId = asPositiveInt(project.roomid);
+                if (!projectRoomId) return null;
+                const room = roomMap.get(projectRoomId);
+                if (!room) return null;
+
+                return {
+                    id: project.id,
+                    roomId: projectRoomId,
+                    roomCode: room.roomcode || null,
+                    title: project.title || room.name || `Room ${projectRoomId}`,
+                    roomName: room.name || `Room ${projectRoomId}`,
+                    passwordProtected: Boolean(room.passwordhash),
+                    updatedAt: project.updatedat || room.updatedat || null,
+                };
+            })
+            .filter(Boolean);
+
+        return res.status(200).json({ projects: result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Remove one saved project bookmark.
+app.delete('/api/projects/:projectId', async (req, res, next) => {
+    try {
+        const projectId = asPositiveInt(req.params.projectId);
+        const userKey = normalizeUserKey(req.query?.userKey);
+
+        if (!projectId) {
+            return res.status(400).json({ message: 'Valid projectId is required.' });
+        }
+        if (!userKey) {
+            return res.status(400).json({ message: 'userKey query parameter is required.' });
+        }
+
+        const { data: removed, error } = await supabase
+            .from(SAVED_PROJECTS_TABLE)
+            .delete()
+            .eq('id', projectId)
+            .eq('userkey', userKey)
+            .select('id')
+            .maybeSingle();
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+        if (!removed) {
+            return res.status(404).json({ message: 'Saved project not found.' });
+        }
+
+        return res.status(200).json({ message: 'Project removed from shelf.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Get room metadata for share UX in editor.
+app.get('/api/rooms/:roomId(\\d+)', async (req, res, next) => {
+    try {
+        const roomId = asPositiveInt(req.params.roomId);
+        if (!roomId) {
+            return res.status(400).json({ message: 'Valid roomId is required.' });
+        }
+
+        const { data: room, error } = await supabase
+            .from(ROOMS_TABLE)
+            .select('id,name,roomcode,passwordhash,updatedat')
+            .eq('id', roomId)
+            .maybeSingle();
+
+        if (error) {
+            return res.status(400).json({ message: error.message, code: error.code });
+        }
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        return res.status(200).json({
+            room: {
+                id: room.id,
+                name: room.name,
+                roomCode: room.roomcode || null,
+                passwordProtected: Boolean(room.passwordhash),
+                updatedAt: room.updatedat || null
+            }
+        });
     } catch (error) {
         next(error);
     }
@@ -778,6 +1385,8 @@ app.post('/api/rooms/:roomId/files', async (req, res, next) => {
             return res.status(400).json({ message: 'File path is required.' });
         }
 
+        const validUserId = await resolveExistingUserId(userId);
+
         const now = new Date().toISOString();
         const { data, error } = await supabase
             .from(ROOM_FILES_TABLE)
@@ -786,7 +1395,7 @@ app.post('/api/rooms/:roomId/files', async (req, res, next) => {
                 path: path.trim(),
                 language: language || 'plaintext',
                 content: content || '',
-                updatedby: asPositiveInt(userId),
+                updatedby: validUserId,
                 createdat: now,
                 updatedat: now
             })

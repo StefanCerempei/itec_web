@@ -304,6 +304,17 @@
     animation: shakeError 0.4s ease-out;
 }
 
+.hub-success {
+    border: 1px solid #10b981;
+    color: #a7f3d0;
+    background: rgba(16, 185, 129, 0.14);
+    border-radius: 12px;
+    padding: 0.875rem 1rem;
+    margin: 0;
+    font-size: 0.9rem;
+    backdrop-filter: blur(4px);
+}
+
 @keyframes shakeError {
     0%, 100% { transform: translateX(0); }
     25% { transform: translateX(-5px); }
@@ -567,6 +578,102 @@
 .rooms-placeholder:hover {
     border-color: rgba(102, 126, 234, 0.4);
     background: rgba(102, 126, 234, 0.05);
+}
+
+.sessions-list {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.session-card {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.9rem;
+    display: grid;
+    gap: 0.6rem;
+}
+
+.session-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.session-card-top strong {
+    color: #ffffff;
+}
+
+.session-active-chip {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    padding: 0.18rem 0.55rem;
+    color: var(--text-secondary);
+}
+
+.session-active-chip.online {
+    color: #bbf7d0;
+    border-color: rgba(34, 197, 94, 0.45);
+    background: rgba(34, 197, 94, 0.14);
+}
+
+.session-active-chip.idle {
+    color: #fef3c7;
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.12);
+}
+
+.session-card-meta {
+    display: grid;
+    gap: 0.26rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.session-card button {
+    justify-self: start;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    padding: 0.42rem 0.7rem;
+    cursor: pointer;
+    transition: var(--transition-default);
+}
+
+.session-card button:hover {
+    background: rgba(102, 126, 234, 0.2);
+    border-color: rgba(102, 126, 234, 0.5);
+}
+
+.saved-projects-block {
+    margin-top: 1.25rem;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.saved-projects-block h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.saved-project-actions {
+    display: flex;
+    gap: 0.55rem;
+}
+
+.saved-project-actions .danger {
+    border-color: rgba(239, 68, 68, 0.55);
+    background: rgba(239, 68, 68, 0.15);
+    color: #fecaca;
+}
+
+.saved-project-actions .danger:hover {
+    border-color: rgba(248, 113, 113, 0.7);
+    background: rgba(239, 68, 68, 0.24);
 }
 
 .placeholder-item {

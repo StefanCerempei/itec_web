@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../lib/apiBaseUrl';
 import Navbar from '../components/Navbar';
@@ -14,44 +14,170 @@ function CollabHub() {
         return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
     };
 
+    const stablePositiveIntFromSeed = (seed) => {
+        const str = String(seed || 'guest-user');
+        let hash = 0;
+        for (let i = 0; i < str.length; i += 1) {
+            hash = (hash << 5) - hash + str.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash) + 1;
+    };
+
     const [roomName, setRoomName] = useState('My Realtime Session');
-    const [roomIdInput, setRoomIdInput] = useState('');
+    const [roomJoinToken, setRoomJoinToken] = useState('');
+    const [createRoomPassword, setCreateRoomPassword] = useState('');
+    const [joinRoomPassword, setJoinRoomPassword] = useState('');
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [roomNotice, setRoomNotice] = useState('');
+    const [activeSessions, setActiveSessions] = useState([]);
+    const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+    const [savedProjects, setSavedProjects] = useState([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true);
 
     const currentUser = useMemo(() => {
-        const fallback = { id: 1, name: 'Guest User', email: null };
+        const fallback = {
+            id: 'guest-user',
+            numericId: stablePositiveIntFromSeed('guest-user'),
+            name: 'Guest User',
+            email: null,
+        };
         const raw = localStorage.getItem('authUser');
         if (!raw) return fallback;
 
         try {
             const parsed = JSON.parse(raw);
-            const normalizedId = toPositiveInt(parsed?.id) ?? 1;
+            const email = parsed?.email || parsed?.user_metadata?.email || null;
+            const identitySeed = parsed?.id || email || parsed?.name || 'guest-user';
+            const normalizedId = toPositiveInt(parsed?.id) ?? stablePositiveIntFromSeed(identitySeed);
             return {
-                id: normalizedId,
+                id: String(identitySeed),
+                numericId: normalizedId,
                 name:
                     `${parsed?.firstName || ''} ${parsed?.lastName || ''}`.trim() ||
                     parsed?.name ||
-                    parsed?.email ||
+                    email ||
                     'Guest User',
-                email: parsed?.email || parsed?.user_metadata?.email || null,
+                email,
             };
         } catch {
             return fallback;
         }
     }, []);
 
-    const joinRoom = async (roomId) => {
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchActiveSessions = async () => {
+            setIsLoadingSessions(true);
+            try {
+                const res = await fetch(`${apiBaseUrl}/api/rooms/sessions?userId=${encodeURIComponent(currentUser.numericId)}`);
+                const payload = await res.json();
+                if (!res.ok) throw new Error(payload?.message || 'Failed to load active sessions.');
+                if (cancelled) return;
+
+                const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+                setActiveSessions(sessions);
+            } catch {
+                if (cancelled) return;
+                setActiveSessions([]);
+            } finally {
+                if (!cancelled) setIsLoadingSessions(false);
+            }
+        };
+
+        fetchActiveSessions();
+        return () => {
+            cancelled = true;
+        };
+    }, [apiBaseUrl, currentUser.numericId]);
+
+    const fetchSavedProjects = async () => {
+        setIsLoadingProjects(true);
         try {
-            const response = await fetch(`${apiBaseUrl}/api/rooms/${roomId}/join`, {
+            const res = await fetch(`${apiBaseUrl}/api/projects?userKey=${encodeURIComponent(currentUser.id)}`);
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload?.message || 'Failed to load saved projects.');
+            const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+            setSavedProjects(projects);
+        } catch {
+            setSavedProjects([]);
+        } finally {
+            setIsLoadingProjects(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchSavedProjects();
+    }, [apiBaseUrl, currentUser.id]);
+
+    const formatSessionTime = (value) => {
+        if (!value) return 'Unknown activity';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return 'Unknown activity';
+        return date.toLocaleString();
+    };
+
+    const readResponsePayload = async (response) => {
+        const rawText = await response.text();
+        try {
+            return { data: JSON.parse(rawText), rawText };
+        } catch {
+            return { data: null, rawText };
+        }
+    };
+
+    const joinRoom = async ({ roomToken, password = '' }) => {
+        try {
+            const normalizedToken = String(roomToken || '').trim();
+            if (!normalizedToken) {
+                throw new Error('Room ID or room code is required.');
+            }
+
+            const primaryResponse = await fetch(`${apiBaseUrl}/api/rooms/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: currentUser.id }),
+                body: JSON.stringify({ roomToken: normalizedToken, password, userId: currentUser.numericId }),
             });
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || 'Failed to join room');
+            const primaryPayload = await readResponsePayload(primaryResponse);
+
+            // Compatibility fallback for environments still running the previous backend route.
+            if (primaryResponse.status === 404) {
+                const fallbackResponse = await fetch(`${apiBaseUrl}/api/rooms/${encodeURIComponent(normalizedToken)}/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password, userId: currentUser.numericId }),
+                });
+
+                const fallbackPayload = await readResponsePayload(fallbackResponse);
+                if (!fallbackResponse.ok) {
+                    const fallbackMessage =
+                        fallbackPayload.data?.message ||
+                        `Join failed (${fallbackResponse.status}).`;
+                    throw new Error(fallbackMessage);
+                }
+
+                const fallbackRoomId = Number(fallbackPayload.data?.roomId || normalizedToken);
+                if (!Number.isInteger(fallbackRoomId) || fallbackRoomId <= 0) {
+                    throw new Error('Joined, but backend did not return a valid room id.');
+                }
+
+                navigate(`/collab/${fallbackRoomId}`);
+                return;
+            }
+
+            if (!primaryResponse.ok) {
+                const primaryMessage =
+                    primaryPayload.data?.message ||
+                    `Join failed (${primaryResponse.status}).`;
+                throw new Error(primaryMessage);
+            }
+
+            const roomId = Number(primaryPayload.data?.roomId);
+            if (!Number.isInteger(roomId) || roomId <= 0) {
+                throw new Error('Server did not return a valid room id.');
             }
 
             navigate(`/collab/${roomId}`);
@@ -63,6 +189,7 @@ function CollabHub() {
     const createRoom = async (e) => {
         e.preventDefault();
         setErrorMessage('');
+        setRoomNotice('');
 
         const trimmed = roomName.trim();
         if (!trimmed) {
@@ -75,13 +202,25 @@ function CollabHub() {
             const res = await fetch(`${apiBaseUrl}/api/rooms`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: trimmed, userId: currentUser.id }),
+                body: JSON.stringify({
+                    name: trimmed,
+                    password: createRoomPassword,
+                    userId: currentUser.numericId,
+                }),
             });
 
             const payload = await res.json();
             if (!res.ok) throw new Error(payload.message || 'Unable to create room.');
 
-            await joinRoom(payload.room.id);
+            const createdRoomCode = String(payload?.room?.roomcode || '').trim();
+            if (createdRoomCode) {
+                setRoomNotice(`Room created. Share this code: ${createdRoomCode}`);
+            }
+
+            await joinRoom({
+                roomToken: payload.room.id,
+                password: createRoomPassword,
+            });
         } catch (error) {
             setErrorMessage(error.message || 'Failed to create room.');
             setIsBusy(false);
@@ -91,19 +230,65 @@ function CollabHub() {
     const handleJoinExisting = async (e) => {
         e.preventDefault();
         setErrorMessage('');
+        setRoomNotice('');
 
-        const roomId = Number(roomIdInput);
-        if (!Number.isInteger(roomId) || roomId <= 0) {
-            setErrorMessage('Enter a valid numeric room id.');
+        const token = roomJoinToken.trim();
+        if (!token) {
+            setErrorMessage('Enter a room ID or room code.');
             return;
         }
 
         setIsBusy(true);
         try {
-            await joinRoom(roomId);
+            await joinRoom({
+                roomToken: token,
+                password: joinRoomPassword,
+            });
         } catch (error) {
             setErrorMessage(error.message || 'Failed to join room.');
             setIsBusy(false);
+        }
+    };
+
+    const handleQuickJoinSession = async (session) => {
+        const token = session?.roomCode || String(session?.id || '').trim();
+        if (!token) {
+            setErrorMessage('This session is missing a valid room token.');
+            return;
+        }
+
+        if (session?.passwordProtected && !joinRoomPassword.trim()) {
+            setRoomJoinToken(token);
+            setErrorMessage('This session is password protected. Enter password, then click Join This Session again.');
+            return;
+        }
+
+        setErrorMessage('');
+        setRoomNotice('');
+        setIsBusy(true);
+        try {
+            await joinRoom({
+                roomToken: token,
+                password: joinRoomPassword,
+            });
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to join room.');
+            setIsBusy(false);
+        }
+    };
+
+    const removeSavedProject = async (projectId) => {
+        try {
+            const res = await fetch(
+                `${apiBaseUrl}/api/projects/${projectId}?userKey=${encodeURIComponent(currentUser.id)}`,
+                { method: 'DELETE' }
+            );
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload?.message || 'Failed to remove project.');
+
+            setSavedProjects((previous) => previous.filter((project) => project.id !== projectId));
+        } catch (error) {
+            setErrorMessage(error.message || 'Unable to remove project.');
         }
     };
 
@@ -124,6 +309,7 @@ function CollabHub() {
                         </div>
 
                         {errorMessage && <p className="hub-error">{errorMessage}</p>}
+                        {roomNotice && <p className="hub-success">{roomNotice}</p>}
 
                         <div className="collab-hub-grid">
                             <form className="hub-form" onSubmit={createRoom}>
@@ -136,19 +322,35 @@ function CollabHub() {
                                     placeholder="Session name"
                                     disabled={isBusy}
                                 />
+                                <input
+                                    id="createRoomPassword"
+                                    type="password"
+                                    value={createRoomPassword}
+                                    onChange={(e) => setCreateRoomPassword(e.target.value)}
+                                    placeholder="Optional room password"
+                                    disabled={isBusy}
+                                />
                                 <button type="submit" disabled={isBusy}>
                                     {isBusy ? 'Working...' : 'Create & Open'}
                                 </button>
                             </form>
 
                             <form className="hub-form" onSubmit={handleJoinExisting}>
-                                <label htmlFor="roomId">Join by room ID</label>
+                                <label htmlFor="roomToken">Join by room ID or code</label>
                                 <input
-                                    id="roomId"
-                                    type="number"
-                                    value={roomIdInput}
-                                    onChange={(e) => setRoomIdInput(e.target.value)}
-                                    placeholder="e.g. 1"
+                                    id="roomToken"
+                                    type="text"
+                                    value={roomJoinToken}
+                                    onChange={(e) => setRoomJoinToken(e.target.value)}
+                                    placeholder="e.g. 12 or AB4K9Q2M"
+                                    disabled={isBusy}
+                                />
+                                <input
+                                    id="joinRoomPassword"
+                                    type="password"
+                                    value={joinRoomPassword}
+                                    onChange={(e) => setJoinRoomPassword(e.target.value)}
+                                    placeholder="Room password (if required)"
                                     disabled={isBusy}
                                 />
                                 <button type="submit" disabled={isBusy}>
@@ -208,14 +410,14 @@ function CollabHub() {
                                         <div className="step-number">1</div>
                                         <div className="step-content">
                                             <strong>Create or Join a Room</strong>
-                                            <p>Start a new session with a custom name or join an existing one using the room ID</p>
+                                            <p>Start a new session with a custom name and optional password, or join with room ID/code</p>
                                         </div>
                                     </div>
                                     <div className="step">
                                         <div className="step-number">2</div>
                                         <div className="step-content">
                                             <strong>Invite Collaborators</strong>
-                                            <p>Share the room ID with team members to invite them to your session</p>
+                                            <p>Share the room code and password (if set) with team members to invite them securely</p>
                                         </div>
                                     </div>
                                     <div className="step">
@@ -236,7 +438,7 @@ function CollabHub() {
                                 </div>
                                 <ul className="tips-list">
                                     <li>🔹 Use descriptive room names to easily identify your sessions</li>
-                                    <li>🔹 Share room IDs securely with your intended collaborators only</li>
+                                    <li>🔹 Prefer sharing room codes instead of raw numeric IDs</li>
                                     <li>🔹 You can join multiple rooms simultaneously in different tabs</li>
                                     <li>🔹 All sessions are automatically saved - never lose your work</li>
                                     <li>🔹 Use the chat feature to communicate with team members in real-time</li>
@@ -249,12 +451,99 @@ function CollabHub() {
                                     <span className="info-icon">🟢</span>
                                     <h3>Active Sessions</h3>
                                 </div>
-                                <p className="active-rooms-note">Your recent and active sessions will appear here once you start collaborating.</p>
-                                <div className="rooms-placeholder">
-                                    <div className="placeholder-item">
-                                        <span className="placeholder-icon">🏠</span>
-                                        <span>No active sessions yet. Create or join a room to get started!</span>
+                                <p className="active-rooms-note">Recent rooms you own or joined, including live participant count.</p>
+
+                                {isLoadingSessions ? (
+                                    <div className="rooms-placeholder">
+                                        <div className="placeholder-item">
+                                            <span className="placeholder-icon">⏳</span>
+                                            <span>Loading your sessions...</span>
+                                        </div>
                                     </div>
+                                ) : activeSessions.length === 0 ? (
+                                    <div className="rooms-placeholder">
+                                        <div className="placeholder-item">
+                                            <span className="placeholder-icon">🏠</span>
+                                            <span>No active sessions yet. Create or join a room to get started!</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="sessions-list">
+                                        {activeSessions.map((session) => (
+                                            <div className="session-card" key={session.id}>
+                                                <div className="session-card-top">
+                                                    <strong>{session.name || `Room ${session.id}`}</strong>
+                                                    <span className={`session-active-chip ${session.activeParticipants > 0 ? 'online' : 'idle'}`}>
+                                                        {session.activeParticipants > 0 ? `${session.activeParticipants} online` : 'idle'}
+                                                    </span>
+                                                </div>
+                                                <div className="session-card-meta">
+                                                    <span>Code: {session.roomCode || '-'}</span>
+                                                    <span>{session.passwordProtected ? 'Password protected' : 'No password'}</span>
+                                                    <span>{session.isOwner ? 'Owner' : 'Member'}</span>
+                                                    <span>Last activity: {formatSessionTime(session.updatedAt)}</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleQuickJoinSession(session)}
+                                                    disabled={isBusy}
+                                                >
+                                                    {isBusy ? 'Working...' : 'Join This Session'}
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className="saved-projects-block">
+                                    <h4>Saved Projects</h4>
+                                    {isLoadingProjects ? (
+                                        <div className="rooms-placeholder">
+                                            <div className="placeholder-item">
+                                                <span className="placeholder-icon">⏳</span>
+                                                <span>Loading saved projects...</span>
+                                            </div>
+                                        </div>
+                                    ) : savedProjects.length === 0 ? (
+                                        <div className="rooms-placeholder">
+                                            <div className="placeholder-item">
+                                                <span className="placeholder-icon">📁</span>
+                                                <span>No saved projects yet. Open a room and click Save Project.</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="sessions-list">
+                                            {savedProjects.map((project) => (
+                                                <div className="session-card" key={project.id}>
+                                                    <div className="session-card-top">
+                                                        <strong>{project.title || project.roomName || `Project ${project.id}`}</strong>
+                                                        <span className="session-active-chip idle">saved</span>
+                                                    </div>
+                                                    <div className="session-card-meta">
+                                                        <span>Code: {project.roomCode || '-'}</span>
+                                                        <span>{project.passwordProtected ? 'Password protected' : 'No password'}</span>
+                                                        <span>Last update: {formatSessionTime(project.updatedAt)}</span>
+                                                    </div>
+                                                    <div className="saved-project-actions">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleQuickJoinSession(project)}
+                                                            disabled={isBusy}
+                                                        >
+                                                            {isBusy ? 'Working...' : 'Open Project'}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="danger"
+                                                            onClick={() => removeSavedProject(project.id)}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
