@@ -15,6 +15,17 @@ const SignIn = () => {
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
     const navigate = useNavigate()
 
+    const redirectToCollab = () => {
+        navigate('/collab', { replace: true })
+
+        // Fallback for environments where hash-based callback state can win over client navigation.
+        window.setTimeout(() => {
+            if (window.location.pathname !== '/collab') {
+                window.location.replace('/collab')
+            }
+        }, 0)
+    }
+
     useEffect(() => {
         const handleMouseMove = (e) => {
             setMousePosition({ x: e.clientX, y: e.clientY })
@@ -24,6 +35,12 @@ const SignIn = () => {
     }, [])
 
     useEffect(() => {
+        const existingToken = localStorage.getItem('authToken')
+        if (existingToken) {
+            redirectToCollab()
+            return
+        }
+
         const syncSupabaseSession = async () => {
             if (!hasSupabaseClientConfig || !supabase) return
 
@@ -33,7 +50,7 @@ const SignIn = () => {
             const { session } = data
             localStorage.setItem('authToken', session.access_token)
             localStorage.setItem('authUser', JSON.stringify(session.user))
-            navigate('/create')
+            redirectToCollab()
         }
 
         syncSupabaseSession()
@@ -60,7 +77,7 @@ const SignIn = () => {
             localStorage.setItem('authUser', JSON.stringify(payload.user))
             localStorage.setItem('rememberMe', String(rememberMe))
 
-            navigate('/create')
+            redirectToCollab()
         } catch (error) {
             setErrorMessage(error.message || 'Unable to sign in.')
         } finally {
@@ -82,7 +99,7 @@ const SignIn = () => {
             const { error } = await supabase.auth.signInWithOAuth({
                 provider,
                 options: {
-                    redirectTo: `${window.location.origin}/signin`
+                    redirectTo: `${window.location.origin}/auth/callback`
                 }
             })
 

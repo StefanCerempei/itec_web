@@ -1,10 +1,12 @@
 import React from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Welcome from './pages/Welcome'
 import SignIn from './pages/SignIn'
 import SignUp from './pages/SignUp'
+import AuthCallback from './pages/AuthCallback'
 import CollabHub from './pages/CollabHub'
 import CollabRoom from './pages/CollabRoom'
+import Demo from './pages/Demo'
 import Pricing from './pages/Pricing'
 import Contact from './pages/Contact'
 import Careers from './pages/Careers'
@@ -18,17 +20,36 @@ import GDPR from './pages/GDPR'
 import Security from './pages/Security'
 import './App.css'
 
+function HomeEntry() {
+    if (typeof window === 'undefined') return <Welcome />
+    const hash = window.location.hash || ''
+    const hasOAuthHashPayload = hash.includes('access_token=') || hash.includes('refresh_token=')
+    if (hasOAuthHashPayload) {
+        return <Navigate to="/auth/callback" replace />
+    }
+    const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
+    return isAuthenticated ? <Navigate to="/collab" replace /> : <Welcome />
+}
+
+function FallbackEntry() {
+    if (typeof window === 'undefined') return <Navigate to="/" replace />
+    const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
+    return isAuthenticated ? <Navigate to="/collab" replace /> : <Navigate to="/" replace />
+}
+
 function App() {
     return (
         <Router>
             <div className="App">
                 <Routes>
-                    <Route path="/" element={<Welcome />} />
+                    <Route path="/" element={<HomeEntry />} />
                     <Route path="/signin" element={<SignIn />} />
                     <Route path="/signup" element={<SignUp />} />
+                    <Route path="/auth/callback" element={<AuthCallback />} />
                     <Route path="/collab" element={<CollabHub />} />
                     <Route path="/collab/:roomId" element={<CollabRoom />} />
                     <Route path="/collab/:roomId/:fileId" element={<CollabRoom />} />
+                    <Route path="/demo" element={<Demo />} />
                     <Route path="/pricing" element={<Pricing />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/careers" element={<Careers />} />
@@ -40,6 +61,7 @@ function App() {
                     <Route path="/terms" element={<TermsOfService />} />
                     <Route path="/gdpr" element={<GDPR />} />
                     <Route path="/security" element={<Security />} />
+                    <Route path="*" element={<FallbackEntry />} />
                 </Routes>
             </div>
         </Router>

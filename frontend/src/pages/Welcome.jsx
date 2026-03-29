@@ -4,13 +4,24 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import StartBuildingModal from '../components/StartBuildingModal'
 import EasterEggPopup from '../components/EasterEggPopup'
+import FeatureModal from "./FeatureModal.jsx"; // Adaugă acest import
 import './Welcome.css'
 
 const Welcome = () => {
     const navigate = useNavigate()
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false)
+    const [selectedFeature, setSelectedFeature] = useState(null)
     const canvasRef = useRef(null)
     const mouseRef = useRef({ x: 0, y: 0 })
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
+        if (isAuthenticated) {
+            navigate('/collab', { replace: true })
+        }
+    }, [navigate])
 
     // Background animation with particles
     useEffect(() => {
@@ -87,42 +98,84 @@ const Welcome = () => {
             title: "AI-Powered Collaboration",
             description: "Real-time code suggestions with intelligent blocks that understand your context.",
             color: "#667eea",
-            gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+            gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            longDescription: "Our AI engine analyzes your code in real-time, providing intelligent suggestions, auto-completions, and even predicting your next lines of code. It learns from your coding patterns and team practices to offer personalized assistance that feels like pair programming with an expert.",
+            benefits: [
+                "Context-aware code completions",
+                "Automatic bug detection and fixes",
+                "Smart refactoring suggestions",
+                "Natural language to code conversion"
+            ]
         },
         {
             icon: "🔒",
             title: "Zero-Trust Security",
             description: "Every execution is isolated in ephemeral containers with automatic vulnerability scanning.",
             color: "#f093fb",
-            gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"
+            gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+            longDescription: "Security is built into every layer of our platform. Each code execution happens in isolated, ephemeral containers that are destroyed after use. We automatically scan for vulnerabilities and ensure your code never leaves your control.",
+            benefits: [
+                "Ephemeral containers for each session",
+                "Automatic vulnerability scanning",
+                "End-to-end encryption",
+                "SOC2 Type II compliant"
+            ]
         },
         {
             icon: "⚡",
             title: "Instant Deployments",
             description: "Push to production with one click. Built-in CI/CD that actually works.",
             color: "#4facfe",
-            gradient: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
+            gradient: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+            longDescription: "Deploy your applications instantly with our integrated CI/CD pipeline. No complex configuration needed. Just click deploy and watch your code go live in seconds. Supports multiple cloud providers and edge networks.",
+            benefits: [
+                "One-click deployments",
+                "Automatic rollbacks",
+                "Custom domain support",
+                "Global CDN distribution"
+            ]
         },
         {
             icon: "🎯",
             title: "Time-Travel Debugging",
             description: "Rewind any session, inspect state, and replay bugs in slow motion.",
             color: "#43e97b",
-            gradient: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)"
+            gradient: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
+            longDescription: "Never lose context when debugging. Our time-travel feature lets you rewind any coding session, inspect the exact state at any moment, and replay bugs in slow motion to understand exactly what went wrong.",
+            benefits: [
+                "Session recording and replay",
+                "State inspection at any point",
+                "Collaborative debugging",
+                "Bug reproduction tools"
+            ]
         },
         {
             icon: "🌐",
             title: "Multi-Language Sandbox",
             description: "Run Python, Node.js, Rust, Go, and more in isolated, resource-limited containers.",
             color: "#fa709a",
-            gradient: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)"
+            gradient: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+            longDescription: "Support for 50+ programming languages out of the box. Each language runs in its own isolated sandbox with resource limits, ensuring fair usage and preventing system overload. Perfect for polyglot development teams.",
+            benefits: [
+                "50+ supported languages",
+                "Isolated environments",
+                "Resource limits and monitoring",
+                "Custom runtime support"
+            ]
         },
         {
             icon: "🤝",
             title: "Real-Time Presence",
             description: "See who's typing, where they're typing, and collaborate without conflicts.",
             color: "#30cfd0",
-            gradient: "linear-gradient(135deg, #30cfd0 0%, #330867 100%)"
+            gradient: "linear-gradient(135deg, #30cfd0 0%, #330867 100%)",
+            longDescription: "Collaborate seamlessly with your team in real-time. See who's online, what they're working on, and where they're typing. Our conflict resolution ensures everyone's changes are merged smoothly without overwriting each other's work.",
+            benefits: [
+                "Live cursor tracking",
+                "Real-time collaboration",
+                "Smart conflict resolution",
+                "Team presence indicators"
+            ]
         }
     ]
 
@@ -135,6 +188,11 @@ const Welcome = () => {
 
     const handleStartBuilding = () => {
         setIsModalOpen(true)
+    }
+
+    const handleFeatureClick = (feature) => {
+        setSelectedFeature(feature)
+        setIsFeatureModalOpen(true)
     }
 
     return (
@@ -202,12 +260,16 @@ const Welcome = () => {
                                 </div>
                                 <h3>{feature.title}</h3>
                                 <p>{feature.description}</p>
-                                <div className="feature-link">
+                                <button
+                                    type="button"
+                                    className="feature-link"
+                                    onClick={() => handleFeatureClick(feature)}
+                                >
                                     Learn more
                                     <svg viewBox="0 0 24 24" fill="none">
                                         <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2"/>
                                     </svg>
-                                </div>
+                                </button>
                             </div>
                         ))}
                     </div>
@@ -268,7 +330,7 @@ const Welcome = () => {
                                     <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2"/>
                                 </svg>
                             </button>
-                            <button className="btn-outline-modern">
+                            <button className="btn-outline-modern" onClick={() => navigate('/pricing')}>
                                 View Pricing
                             </button>
                         </div>
@@ -285,6 +347,15 @@ const Welcome = () => {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
             />
+
+            {/* Feature Modal */}
+            {selectedFeature && (
+                <FeatureModal
+                    isOpen={isFeatureModalOpen}
+                    onClose={() => setIsFeatureModalOpen(false)}
+                    feature={selectedFeature}
+                />
+            )}
         </div>
     )
 }
