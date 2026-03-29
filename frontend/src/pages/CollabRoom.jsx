@@ -1258,6 +1258,16 @@ function CollabRoom() {
 
       {errorMessage && <p className="collab-error">{errorMessage}</p>}
 
+      {firstRunReaction && (
+        <div className="compile-first-reaction-badge" aria-live="polite">
+          <img
+            className="compile-first-reaction"
+            src={firstRunReaction === 'like' ? likeImage : dislikeImage}
+            alt={firstRunReaction === 'like' ? 'First compile succeeded' : 'First compile failed'}
+          />
+        </div>
+      )}
+
       <section className="collab-body">
         <aside className="presence-panel">
           <h2>In this room</h2>
@@ -1284,13 +1294,6 @@ function CollabRoom() {
               placeholder="stdin (optional)"
             />
             <h3>Compiler Output</h3>
-            {firstRunReaction && (
-              <img
-                className="compile-first-reaction"
-                src={firstRunReaction === 'like' ? likeImage : dislikeImage}
-                alt={firstRunReaction === 'like' ? 'First compile succeeded' : 'First compile failed'}
-              />
-            )}
             <pre>{runOutput || 'No output yet. Click Run.'}</pre>
           </div>
         </aside>
