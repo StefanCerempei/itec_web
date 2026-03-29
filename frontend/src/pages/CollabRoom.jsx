@@ -1053,6 +1053,14 @@ function CollabRoom() {
       setRunStatus('running');
       setRunOutput('Running...');
 
+      const heavyRuntimeTimeouts = {
+        java: 15000,
+        go: 12000,
+        rust: 12000,
+        typescript: 10000,
+      };
+      const timeoutMs = heavyRuntimeTimeouts[language] || 7000;
+
       const res = await fetch(`${apiBaseUrl}/api/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1060,6 +1068,7 @@ function CollabRoom() {
           language,
           code: content,
           stdin,
+          timeoutMs,
         }),
       });
 
