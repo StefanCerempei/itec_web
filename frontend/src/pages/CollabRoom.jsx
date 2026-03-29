@@ -39,6 +39,7 @@ function CollabRoom() {
   const [runOutput, setRunOutput] = useState('');
   const [runStatus, setRunStatus] = useState('idle');
   const [firstRunReaction, setFirstRunReaction] = useState(null);
+  const [showFirstRunReaction, setShowFirstRunReaction] = useState(false);
   const [status, setStatus] = useState('connecting');
   const [saveStatus, setSaveStatus] = useState('idle');
   const [projectSaveStatus, setProjectSaveStatus] = useState('idle');
@@ -69,6 +70,17 @@ function CollabRoom() {
   const presenceClassCacheRef = useRef(new Map());
   const nextPresenceStyleIdRef = useRef(1);
   const disconnectTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!firstRunReaction) return undefined;
+
+    setShowFirstRunReaction(true);
+    const timer = setTimeout(() => {
+      setShowFirstRunReaction(false);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [firstRunReaction]);
 
   const inferLanguageFromPath = (pathValue) => {
     const normalized = String(pathValue || '').toLowerCase();
@@ -1258,7 +1270,7 @@ function CollabRoom() {
 
       {errorMessage && <p className="collab-error">{errorMessage}</p>}
 
-      {firstRunReaction && (
+      {firstRunReaction && showFirstRunReaction && (
         <div className="compile-first-reaction-badge" aria-live="polite">
           <img
             className="compile-first-reaction"
