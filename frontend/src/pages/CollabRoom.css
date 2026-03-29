@@ -411,8 +411,18 @@
 .remote-cursor-initial {
   pointer-events: none;
   user-select: none;
-  transform: translateY(-6px);
+  --cursor-stack-index: 0;
+  --cursor-stack-gap: 18px;
+  position: relative;
   text-transform: uppercase;
+}
+
+.remote-cursor-initial-above {
+  transform: translateY(calc(-6px - (var(--cursor-stack-index) * var(--cursor-stack-gap))));
+}
+
+.remote-cursor-initial-below {
+  transform: translateY(calc(8px + (var(--cursor-stack-index) * var(--cursor-stack-gap))));
 }
 
 .ai-inserted-line,
