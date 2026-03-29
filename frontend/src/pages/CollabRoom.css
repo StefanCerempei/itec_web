@@ -494,6 +494,35 @@
   margin-bottom: 10px;
 }
 
+.terminal-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.terminal-input {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(6, 10, 20, 0.72);
+  color: #dbe7ff;
+  padding: 8px;
+}
+
+.terminal-toolbar button {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbe7ff;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.terminal-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .runner-block pre {
   margin: 0;
   border: 1px solid rgba(255, 255, 255, 0.18);
