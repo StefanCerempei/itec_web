@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 const path = require('path');
+const os = require('os');
+const fs = require('fs/promises');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -630,6 +632,21 @@ const LOCAL_RUNNER_MAP = {
     }
 };
 
+const LOCAL_COMPILED_RUNNER_MAP = {
+    c: {
+        compilers: ['gcc', 'clang'],
+        sourceExt: '.c',
+        compileArgs: (sourcePath, outputPath) => [sourcePath, '-O2', '-std=c11', '-o', outputPath],
+        runtime: 'c'
+    },
+    cpp: {
+        compilers: ['g++', 'clang++'],
+        sourceExt: '.cpp',
+        compileArgs: (sourcePath, outputPath) => [sourcePath, '-O2', '-std=c++17', '-o', outputPath],
+        runtime: 'cpp'
+    }
+};
+
 const executeProcess = ({ command, args, stdin, timeoutMs }) =>
     new Promise((resolve, reject) => {
         const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -677,6 +694,86 @@ const executeProcess = ({ command, args, stdin, timeoutMs }) =>
         }
         child.stdin.end();
     });
+
+const executeCompiledCode = async ({ language, code, stdin, timeoutMs }) => {
+    const mapped = LOCAL_COMPILED_RUNNER_MAP[language];
+    if (!mapped) {
+        throw new Error(`No compiled runner configured for language: ${language}`);
+    }
+
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-compile-'));
+    const sourcePath = path.join(workspaceDir, `main${mapped.sourceExt}`);
+    const executableName = process.platform === 'win32' ? 'program.exe' : 'program';
+    const outputPath = path.join(workspaceDir, executableName);
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const compilerCandidates = Array.isArray(mapped.compilers) && mapped.compilers.length > 0
+            ? mapped.compilers
+            : [];
+
+        let selectedCompiler = null;
+        let compileRun = null;
+        let missingCompilerError = null;
+
+        for (const compiler of compilerCandidates) {
+            try {
+                compileRun = await executeProcess({
+                    command: compiler,
+                    args: mapped.compileArgs(sourcePath, outputPath),
+                    stdin: '',
+                    timeoutMs: compileTimeoutMs
+                });
+                selectedCompiler = compiler;
+                break;
+            } catch (error) {
+                if (error?.code === 'ENOENT') {
+                    missingCompilerError = error;
+                    continue;
+                }
+                throw error;
+            }
+        }
+
+        if (!compileRun || !selectedCompiler) {
+            const missingError = missingCompilerError || new Error('No C/C++ compiler found.');
+            missingError.code = 'ENOENT';
+            missingError.path = compilerCandidates.join(' or ');
+            throw missingError;
+        }
+
+        if (compileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: selectedCompiler,
+                stdout: compileRun.stdout || '',
+                stderr: compileRun.stderr || '',
+                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
+                signal: compileRun.signal || null
+            };
+        }
+
+        const run = await executeProcess({
+            command: outputPath,
+            args: [],
+            stdin: typeof stdin === 'string' ? stdin : '',
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: selectedCompiler,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
 
 const updateRoomFileRecord = async ({ roomId, fileId, content, language, userId }) => {
     const validUserId = await resolveExistingUserId(userId);
@@ -1635,19 +1732,44 @@ app.post('/api/compile', async (req, res, next) => {
             return res.status(400).json({ message: 'language and code are required.' });
         }
 
-        const mapped = LOCAL_RUNNER_MAP[String(language).toLowerCase()];
-        if (!mapped) {
+        const normalizedLanguage = String(language).toLowerCase();
+        const interpretedRunner = LOCAL_RUNNER_MAP[normalizedLanguage];
+        const compiledRunner = LOCAL_COMPILED_RUNNER_MAP[normalizedLanguage];
+
+        if (!interpretedRunner && !compiledRunner) {
             return res.status(400).json({
                 message: `Language ${language} is not supported by local runner.`,
-                supported: Object.keys(LOCAL_RUNNER_MAP)
+                supported: [...Object.keys(LOCAL_RUNNER_MAP), ...Object.keys(LOCAL_COMPILED_RUNNER_MAP)]
             });
         }
 
         const executionTimeout = Math.min(Math.max(Number(timeoutMs) || 5000, 1000), 15000);
-        const run = await executeProcess({
-            command: mapped.command,
-            args: mapped.argsFromCode(code),
-            stdin: typeof stdin === 'string' ? stdin : '',
+        let run;
+
+        if (interpretedRunner) {
+            run = await executeProcess({
+                command: interpretedRunner.command,
+                args: interpretedRunner.argsFromCode(code),
+                stdin: typeof stdin === 'string' ? stdin : '',
+                timeoutMs: executionTimeout
+            });
+
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: interpretedRunner.runtime,
+                stage: 'run'
+            });
+        }
+
+        run = await executeCompiledCode({
+            language: normalizedLanguage,
+            code,
+            stdin,
             timeoutMs: executionTimeout
         });
 
@@ -1657,10 +1779,17 @@ app.post('/api/compile', async (req, res, next) => {
             output: `${run.stdout || ''}${run.stderr || ''}`,
             code: Number.isInteger(run.code) ? run.code : null,
             signal: run.signal || null,
-            language: String(language).toLowerCase(),
-            runtime: mapped.runtime
+            language: normalizedLanguage,
+            runtime: run.runtime || compiledRunner.runtime,
+            stage: run.stage || 'run'
         });
     } catch (error) {
+        if (error?.code === 'ENOENT') {
+            const missingExecutable = error?.path || 'required runtime/compiler';
+            return res.status(500).json({
+                message: `Missing executable on backend server: ${missingExecutable}. Install it and redeploy.`
+            });
+        }
         next(error);
     }
 });
