@@ -11,6 +11,14 @@ const Welcome = () => {
     const canvasRef = useRef(null)
     const mouseRef = useRef({ x: 0, y: 0 })
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
+        if (isAuthenticated) {
+            navigate('/collab', { replace: true })
+        }
+    }, [navigate])
+
     // Background animation with particles
     useEffect(() => {
         const canvas = canvasRef.current
