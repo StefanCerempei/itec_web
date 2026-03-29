@@ -209,6 +209,24 @@ function CollabRoom() {
     return 'Collaborator';
   };
 
+  const getPresencePanelName = (member) => {
+    const rawName = String(member?.user?.name || '').trim();
+    const rawEmail = String(member?.user?.email || '').trim();
+
+    if (rawName.includes('@')) {
+      const localFromName = rawName.split('@')[0].trim();
+      if (localFromName) return localFromName;
+    }
+
+    if (rawEmail.includes('@')) {
+      const localFromEmail = rawEmail.split('@')[0].trim();
+      if (localFromEmail) return localFromEmail;
+    }
+
+    if (rawName) return rawName;
+    return 'Unknown';
+  };
+
   const ensurePresenceStyleSheet = () => {
     if (presenceStyleElRef.current) return presenceStyleElRef.current;
 
@@ -1310,7 +1328,7 @@ function CollabRoom() {
                     className="member-dot"
                     style={{ backgroundColor: getCollaboratorPalette(member).dot }}
                   />
-                  {member.user?.name || 'Unknown'}
+                  <span className="member-label-text">{getPresencePanelName(member)}</span>
                 </span>
                 <small>cursor {Number.isInteger(member.cursor) ? member.cursor : '-'}</small>
               </li>
