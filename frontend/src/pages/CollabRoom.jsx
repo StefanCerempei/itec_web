@@ -78,7 +78,7 @@ function CollabRoom() {
     if (normalized.endsWith('.rs')) return 'rust';
     if (normalized.endsWith('.cpp') || normalized.endsWith('.cc') || normalized.endsWith('.cxx')) return 'cpp';
     if (normalized.endsWith('.c')) return 'c';
-    if (normalized.endsWith('.cs')) return 'csharp';
+    if (normalized.endsWith('.cs')) return 'plaintext';
     if (normalized.endsWith('.json')) return 'json';
     if (normalized.endsWith('.html')) return 'html';
     if (normalized.endsWith('.css')) return 'css';
@@ -1197,7 +1197,6 @@ function CollabRoom() {
               <option value="rust">Rust</option>
               <option value="cpp">C++</option>
               <option value="c">C</option>
-              <option value="csharp">C#</option>
               <option value="json">JSON</option>
               <option value="html">HTML</option>
               <option value="css">CSS</option>

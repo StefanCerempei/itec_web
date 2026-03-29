@@ -1023,154 +1023,6 @@ const executeRustCode = async ({ code, stdin, timeoutMs }) => {
     }
 };
 
-const executeCSharpWithDotnet = async ({ code, stdin, timeoutMs }) => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-dotnet-'));
-    const sourcePath = path.join(workspaceDir, 'Program.cs');
-    const projectPath = path.join(workspaceDir, 'App.csproj');
-    const outputDir = path.join(workspaceDir, 'out');
-    const outputDllPath = path.join(outputDir, 'App.dll');
-
-    try {
-        await fs.writeFile(sourcePath, code, 'utf8');
-        await fs.writeFile(
-            projectPath,
-            [
-                '<Project Sdk="Microsoft.NET.Sdk">',
-                '  <PropertyGroup>',
-                '    <OutputType>Exe</OutputType>',
-                '    <TargetFramework>net8.0</TargetFramework>',
-                '    <ImplicitUsings>disable</ImplicitUsings>',
-                '    <Nullable>disable</Nullable>',
-                '  </PropertyGroup>',
-                '</Project>'
-            ].join('\n'),
-            'utf8'
-        );
-
-        const compileTimeoutMs = Math.min(timeoutMs, 12000);
-        const { run: compileRun, command: compileCommand } = await executeWithCommandFallback({
-            commandCandidates: ['dotnet'],
-            argsFromCommand: () => [
-                'build',
-                projectPath,
-                '-c',
-                'Release',
-                '-nologo',
-                '-v',
-                'q',
-                '-o',
-                outputDir
-            ],
-            stdin: '',
-            timeoutMs: compileTimeoutMs
-        });
-
-        if (compileRun.code !== 0) {
-            return {
-                stage: 'compile',
-                runtime: compileCommand,
-                stdout: compileRun.stdout || '',
-                stderr: compileRun.stderr || '',
-                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
-                signal: compileRun.signal || null
-            };
-        }
-
-        const { run, command } = await executeWithCommandFallback({
-            commandCandidates: ['dotnet'],
-            argsFromCommand: () => [outputDllPath],
-            stdin,
-            timeoutMs
-        });
-
-        return {
-            stage: 'run',
-            runtime: `${compileCommand}+${command}`,
-            stdout: run.stdout || '',
-            stderr: run.stderr || '',
-            code: Number.isInteger(run.code) ? run.code : null,
-            signal: run.signal || null
-        };
-    } finally {
-        await fs.rm(workspaceDir, { recursive: true, force: true });
-    }
-};
-
-const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-run-'));
-    const sourcePath = path.join(workspaceDir, 'Program.cs');
-    const outputPath = path.join(workspaceDir, 'program.exe');
-
-    try {
-        await fs.writeFile(sourcePath, code, 'utf8');
-
-        const compileTimeoutMs = Math.min(timeoutMs, 10000);
-        let compileRun;
-        let compileCommand;
-
-        try {
-            const compileResult = await executeWithCommandFallback({
-                commandCandidates: ['mcs', 'csc'],
-                argsFromCommand: (command) => {
-                    if (command === 'mcs') return [sourcePath, '-out:' + outputPath];
-                    return ['-out:' + outputPath, sourcePath];
-                },
-                stdin: '',
-                timeoutMs: compileTimeoutMs
-            });
-
-            compileRun = compileResult.run;
-            compileCommand = compileResult.command;
-        } catch (error) {
-            if (error?.code === 'ENOENT') {
-                return executeCSharpWithDotnet({ code, stdin, timeoutMs });
-            }
-            throw error;
-        }
-
-        if (compileRun.code !== 0) {
-            return {
-                stage: 'compile',
-                runtime: compileCommand,
-                stdout: compileRun.stdout || '',
-                stderr: compileRun.stderr || '',
-                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
-                signal: compileRun.signal || null
-            };
-        }
-
-        let run;
-        let command;
-
-        try {
-            const runResult = await executeWithCommandFallback({
-                commandCandidates: ['mono'],
-                argsFromCommand: () => [outputPath],
-                stdin,
-                timeoutMs
-            });
-            run = runResult.run;
-            command = runResult.command;
-        } catch (error) {
-            if (error?.code === 'ENOENT') {
-                return executeCSharpWithDotnet({ code, stdin, timeoutMs });
-            }
-            throw error;
-        }
-
-        return {
-            stage: 'run',
-            runtime: `${compileCommand}+${command}`,
-            stdout: run.stdout || '',
-            stderr: run.stderr || '',
-            code: Number.isInteger(run.code) ? run.code : null,
-            signal: run.signal || null
-        };
-    } finally {
-        await fs.rm(workspaceDir, { recursive: true, force: true });
-    }
-};
-
 const executeVirtualLanguage = ({ language, code }) => {
     if (language === 'json') {
         try {
@@ -2168,7 +2020,7 @@ app.post('/api/compile', async (req, res, next) => {
         const compiledRunner = LOCAL_COMPILED_RUNNER_MAP[normalizedLanguage];
         const isVirtualLanguage = LOCAL_VIRTUAL_LANGUAGE_SET.has(normalizedLanguage);
 
-        if (!interpretedRunner && !fileRunner && !compiledRunner && normalizedLanguage !== 'typescript' && normalizedLanguage !== 'java' && normalizedLanguage !== 'rust' && normalizedLanguage !== 'csharp' && !isVirtualLanguage) {
+        if (!interpretedRunner && !fileRunner && !compiledRunner && normalizedLanguage !== 'typescript' && normalizedLanguage !== 'java' && normalizedLanguage !== 'rust' && !isVirtualLanguage) {
             return res.status(400).json({
                 message: `Language ${language} is not supported by local runner.`,
                 supported: [
@@ -2178,7 +2030,6 @@ app.post('/api/compile', async (req, res, next) => {
                     'typescript',
                     'java',
                     'rust',
-                    'csharp',
                     ...Array.from(LOCAL_VIRTUAL_LANGUAGE_SET)
                 ]
             });
@@ -2265,20 +2116,6 @@ app.post('/api/compile', async (req, res, next) => {
                 signal: run.signal || null,
                 language: normalizedLanguage,
                 runtime: run.runtime || 'rust',
-                stage: run.stage || 'run'
-            });
-        }
-
-        if (normalizedLanguage === 'csharp') {
-            run = await executeCSharpCode({ code, stdin, timeoutMs: executionTimeout });
-            return res.status(200).json({
-                stdout: run.stdout || '',
-                stderr: run.stderr || '',
-                output: `${run.stdout || ''}${run.stderr || ''}`,
-                code: Number.isInteger(run.code) ? run.code : null,
-                signal: run.signal || null,
-                language: normalizedLanguage,
-                runtime: run.runtime || 'csharp',
                 stage: run.stage || 'run'
             });
         }
