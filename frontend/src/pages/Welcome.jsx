@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import StartBuildingModal from '../components/StartBuildingModal'
+import EasterEggPopup from '../components/EasterEggPopup'
 import './Welcome.css'
 
 const Welcome = () => {
@@ -138,6 +139,7 @@ const Welcome = () => {
 
     return (
         <div className="welcome-modern">
+            <EasterEggPopup />
             <canvas ref={canvasRef} className="particle-canvas" />
             <Navbar />
 
@@ -276,6 +278,7 @@ const Welcome = () => {
             </section>
 
             <Footer />
+            <EasterEggPopup />
 
             {/* Start Building Modal */}
             <StartBuildingModal
