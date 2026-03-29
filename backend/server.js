@@ -88,6 +88,12 @@ const ROOM_CODE_LENGTH = 8;
 const TERMINAL_COMMAND_MAX_LENGTH = 180;
 const TERMINAL_OUTPUT_MAX_LENGTH = 200000;
 const TERMINAL_TIMEOUT_MS = 15000;
+const EXEC_LIMIT_CPU_SECONDS = Math.min(Math.max(Number(process.env.EXEC_LIMIT_CPU_SECONDS) || 4, 1), 30);
+const EXEC_LIMIT_MEMORY_BYTES = Math.min(
+    Math.max(Number(process.env.EXEC_LIMIT_MEMORY_BYTES) || 268435456, 64 * 1024 * 1024),
+    2 * 1024 * 1024 * 1024
+);
+const EXEC_LIMIT_NPROC = Math.min(Math.max(Number(process.env.EXEC_LIMIT_NPROC) || 96, 16), 512);
 
 const TERMINAL_BLOCKED_PATTERN = /(rm\s+-rf\s+\/|shutdown|reboot|poweroff|mkfs|:\s*\(\)\s*\{|dd\s+if=|sudo\s+|\n|\r)/i;
 
@@ -150,6 +156,12 @@ const sanitizeTerminalCommand = (value) => {
         return { ok: false, message: 'Command blocked by safety policy.' };
     }
     return { ok: true, command };
+};
+
+const looksLikeMissingExecutableOutput = (stderr, code) => {
+    if (code !== 127) return false;
+    const msg = String(stderr || '').toLowerCase();
+    return msg.includes('no such file') || msg.includes('failed to execute') || msg.includes('not found');
 };
 
 const ensureRealtimeRoom = (roomId, fileId) => {
@@ -750,6 +762,24 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('compile:share', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+        if (!roomId || !fileId) return;
+
+        const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
+        io.to(channel).emit('compile:shared', {
+            roomId,
+            fileId,
+            language: String(payload.language || ''),
+            output: String(payload.output || ''),
+            status: payload.status === 'error' ? 'error' : 'ok',
+            sourceSocketId: socket.id,
+            by: socket.data.user || null,
+            at: new Date().toISOString()
+        });
+    });
+
     socket.on('disconnect', () => {
         const roomId = socket.data.roomId;
         const fileId = socket.data.fileId;
@@ -841,7 +871,7 @@ const LOCAL_VIRTUAL_LANGUAGE_SET = new Set([
     'plaintext'
 ]);
 
-const executeProcess = ({ command, args, stdin, timeoutMs }) =>
+const runSpawnedProcess = ({ command, args, stdin, timeoutMs }) =>
     new Promise((resolve, reject) => {
         const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
@@ -889,6 +919,34 @@ const executeProcess = ({ command, args, stdin, timeoutMs }) =>
         child.stdin.end();
     });
 
+const executeProcess = async ({ command, args, stdin, timeoutMs, applyResourceLimits = true }) => {
+    if (!applyResourceLimits) {
+        return runSpawnedProcess({ command, args, stdin, timeoutMs });
+    }
+
+    try {
+        return await runSpawnedProcess({
+            command: 'prlimit',
+            args: [
+                `--cpu=${EXEC_LIMIT_CPU_SECONDS}`,
+                `--as=${EXEC_LIMIT_MEMORY_BYTES}`,
+                `--nproc=${EXEC_LIMIT_NPROC}`,
+                '--',
+                command,
+                ...(Array.isArray(args) ? args : [])
+            ],
+            stdin,
+            timeoutMs
+        });
+    } catch (error) {
+        // If prlimit is missing on host, continue without hard process caps.
+        if (error?.code === 'ENOENT') {
+            return runSpawnedProcess({ command, args, stdin, timeoutMs });
+        }
+        throw error;
+    }
+};
+
 const executeCompiledCode = async ({ language, code, stdin, timeoutMs }) => {
     const mapped = LOCAL_COMPILED_RUNNER_MAP[language];
     if (!mapped) {
@@ -918,8 +976,13 @@ const executeCompiledCode = async ({ language, code, stdin, timeoutMs }) => {
                     command: compiler,
                     args: mapped.compileArgs(sourcePath, outputPath),
                     stdin: '',
-                    timeoutMs: compileTimeoutMs
+                    timeoutMs: compileTimeoutMs,
+                    applyResourceLimits: false
                 });
+                if (looksLikeMissingExecutableOutput(compileRun.stderr, compileRun.code)) {
+                    compileRun = null;
+                    continue;
+                }
                 selectedCompiler = compiler;
                 break;
             } catch (error) {
@@ -969,7 +1032,7 @@ const executeCompiledCode = async ({ language, code, stdin, timeoutMs }) => {
     }
 };
 
-const executeWithCommandFallback = async ({ commandCandidates, argsFromCommand, stdin, timeoutMs }) => {
+const executeWithCommandFallback = async ({ commandCandidates, argsFromCommand, stdin, timeoutMs, applyResourceLimits = true }) => {
     let missingError = null;
 
     for (const command of commandCandidates || []) {
@@ -978,8 +1041,12 @@ const executeWithCommandFallback = async ({ commandCandidates, argsFromCommand, 
                 command,
                 args: argsFromCommand(command),
                 stdin: typeof stdin === 'string' ? stdin : '',
-                timeoutMs
+                timeoutMs,
+                applyResourceLimits
             });
+            if (looksLikeMissingExecutableOutput(run.stderr, run.code)) {
+                continue;
+            }
             return { run, command };
         } catch (error) {
             if (error?.code === 'ENOENT') {
@@ -1071,7 +1138,8 @@ const executeTypeScriptCode = async ({ code, stdin, timeoutMs }) => {
                 transpiledDir
             ],
             stdin: '',
-            timeoutMs: compileTimeoutMs
+            timeoutMs: compileTimeoutMs,
+            applyResourceLimits: false
         });
 
         if (transpileRun.code !== 0) {
@@ -1117,7 +1185,8 @@ const executeJavaCode = async ({ code, stdin, timeoutMs }) => {
             commandCandidates: ['javac'],
             argsFromCommand: () => [sourcePath],
             stdin: '',
-            timeoutMs: compileTimeoutMs
+            timeoutMs: compileTimeoutMs,
+            applyResourceLimits: false
         });
 
         if (compileRun.code !== 0) {
@@ -1164,7 +1233,8 @@ const executeRustCode = async ({ code, stdin, timeoutMs }) => {
             commandCandidates: ['rustc'],
             argsFromCommand: () => [sourcePath, '-O', '-o', outputPath],
             stdin: '',
-            timeoutMs: compileTimeoutMs
+            timeoutMs: compileTimeoutMs,
+            applyResourceLimits: false
         });
 
         if (compileRun.code !== 0) {
@@ -1214,7 +1284,8 @@ const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
                 return ['-out:' + outputPath, sourcePath];
             },
             stdin: '',
-            timeoutMs: compileTimeoutMs
+            timeoutMs: compileTimeoutMs,
+            applyResourceLimits: false
         });
 
         if (compileRun.code !== 0) {
