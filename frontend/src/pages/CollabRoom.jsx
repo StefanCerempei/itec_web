@@ -38,6 +38,9 @@ function CollabRoom() {
   const [stdin, setStdin] = useState('');
   const [runOutput, setRunOutput] = useState('');
   const [runStatus, setRunStatus] = useState('idle');
+  const [terminalCommand, setTerminalCommand] = useState('echo Hello from iTECify shared terminal');
+  const [terminalOutput, setTerminalOutput] = useState('');
+  const [terminalStatus, setTerminalStatus] = useState('idle');
   const [firstRunReaction, setFirstRunReaction] = useState(null);
   const [showFirstRunReaction, setShowFirstRunReaction] = useState(false);
   const [status, setStatus] = useState('connecting');
@@ -948,6 +951,34 @@ function CollabRoom() {
       setErrorMessage(`${agent}: ${reason}`);
     });
 
+    socket.on('terminal:state', (payload) => {
+      setTerminalOutput(typeof payload?.history === 'string' ? payload.history : '');
+      setTerminalStatus(payload?.running ? 'running' : 'idle');
+    });
+
+    socket.on('terminal:status', (payload) => {
+      setTerminalStatus(payload?.running ? 'running' : 'idle');
+    });
+
+    socket.on('terminal:output', (payload) => {
+      const chunk = typeof payload?.chunk === 'string' ? payload.chunk : '';
+      if (!chunk) return;
+      setTerminalOutput((previous) => {
+        const next = `${previous}${chunk}`;
+        return next.length > 200000 ? next.slice(next.length - 200000) : next;
+      });
+    });
+
+    socket.on('terminal:error', (payload) => {
+      const message = payload?.message || 'Terminal command failed.';
+      setTerminalOutput((previous) => `${previous}[error] ${message}\n`);
+      setTerminalStatus('idle');
+    });
+
+    socket.on('terminal:done', () => {
+      setTerminalStatus('idle');
+    });
+
     return () => {
       if (disconnectTimerRef.current) {
         clearTimeout(disconnectTimerRef.current);
@@ -1019,6 +1050,24 @@ function CollabRoom() {
       fileId,
       blockId,
       decision,
+    });
+  };
+
+  const runSharedTerminalCommand = () => {
+    const socket = socketRef.current;
+    const command = terminalCommand.trim();
+
+    if (!socket || status !== 'connected') {
+      setErrorMessage('Socket is disconnected. Reconnect to run terminal command.');
+      return;
+    }
+
+    if (!command) return;
+
+    socket.emit('terminal:run', {
+      roomId: Number(roomId),
+      fileId,
+      command,
     });
   };
 
@@ -1344,6 +1393,31 @@ function CollabRoom() {
             />
             <h3>Compiler Output</h3>
             <pre>{runOutput || 'No output yet. Click Run.'}</pre>
+
+            <h3>Shared Terminal</h3>
+            <div className="terminal-toolbar">
+              <input
+                className="terminal-input"
+                type="text"
+                value={terminalCommand}
+                onChange={(event) => setTerminalCommand(event.target.value)}
+                placeholder="Type a command to run for the whole room"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    runSharedTerminalCommand();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={runSharedTerminalCommand}
+                disabled={!fileId || status !== 'connected' || terminalStatus === 'running'}
+              >
+                {terminalStatus === 'running' ? 'Running...' : 'Run'}
+              </button>
+            </div>
+            <pre>{terminalOutput || 'No shared terminal output yet.'}</pre>
           </div>
         </aside>
 

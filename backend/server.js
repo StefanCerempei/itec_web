@@ -75,7 +75,8 @@ const io = new Server(httpServer, {
 
 const collabState = {
     // Key format: `${roomId}:${fileId}`
-    rooms: new Map()
+    rooms: new Map(),
+    terminals: new Map()
 };
 
 const DEFAULT_AI_AGENTS = ['Planner', 'Refactor', 'BugFixer', 'Performance'];
@@ -84,6 +85,11 @@ const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
 const pendingMemberRemovals = new Map();
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_CODE_LENGTH = 8;
+const TERMINAL_COMMAND_MAX_LENGTH = 180;
+const TERMINAL_OUTPUT_MAX_LENGTH = 200000;
+const TERMINAL_TIMEOUT_MS = 15000;
+
+const TERMINAL_BLOCKED_PATTERN = /(rm\s+-rf\s+\/|shutdown|reboot|poweroff|mkfs|:\s*\(\)\s*\{|dd\s+if=|sudo\s+|\n|\r)/i;
 
 const getUserPresenceKey = (user = {}) => {
     const email = String(user.email || '').trim().toLowerCase();
@@ -112,6 +118,39 @@ const getAiAgents = () => {
 };
 
 const getRoomKey = (roomId, fileId) => `${roomId}:${fileId}`;
+
+const ensureTerminalState = (roomId, fileId) => {
+    const key = getRoomKey(roomId, fileId);
+    if (!collabState.terminals.has(key)) {
+        collabState.terminals.set(key, {
+            history: '',
+            running: false,
+            process: null,
+            lastCommand: null
+        });
+    }
+    return collabState.terminals.get(key);
+};
+
+const appendTerminalHistory = (terminalState, chunk) => {
+    if (!terminalState || typeof chunk !== 'string' || chunk.length === 0) return;
+    const next = `${terminalState.history || ''}${chunk}`;
+    terminalState.history = next.length > TERMINAL_OUTPUT_MAX_LENGTH
+        ? next.slice(next.length - TERMINAL_OUTPUT_MAX_LENGTH)
+        : next;
+};
+
+const sanitizeTerminalCommand = (value) => {
+    const command = String(value || '').trim();
+    if (!command) return { ok: false, message: 'Command is required.' };
+    if (command.length > TERMINAL_COMMAND_MAX_LENGTH) {
+        return { ok: false, message: `Command too long (max ${TERMINAL_COMMAND_MAX_LENGTH} chars).` };
+    }
+    if (TERMINAL_BLOCKED_PATTERN.test(command)) {
+        return { ok: false, message: 'Command blocked by safety policy.' };
+    }
+    return { ok: true, command };
+};
 
 const ensureRealtimeRoom = (roomId, fileId) => {
     const key = getRoomKey(roomId, fileId);
@@ -309,6 +348,15 @@ io.on('connection', (socket) => {
             members: serializeMembers(room.members),
             aiBlocks: serializeAiBlocks(room.aiBlocks),
             aiAgents: getAiAgents()
+        });
+
+        const terminalState = ensureTerminalState(roomId, fileId);
+        socket.emit('terminal:state', {
+            roomId,
+            fileId,
+            history: terminalState.history,
+            running: terminalState.running,
+            lastCommand: terminalState.lastCommand
         });
 
         io.to(channel).emit('presence:state', {
@@ -581,6 +629,127 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('terminal:run', (payload = {}) => {
+        const roomId = asPositiveInt(payload.roomId || socket.data.roomId);
+        const fileId = asPositiveInt(payload.fileId || socket.data.fileId);
+        const validation = sanitizeTerminalCommand(payload.command);
+
+        if (!roomId || !fileId) return;
+
+        const channel = socket.data.channel || `room:${roomId}:file:${fileId}`;
+        const terminalState = ensureTerminalState(roomId, fileId);
+
+        if (!validation.ok) {
+            socket.emit('terminal:error', {
+                roomId,
+                fileId,
+                message: validation.message
+            });
+            return;
+        }
+
+        if (terminalState.running) {
+            socket.emit('terminal:error', {
+                roomId,
+                fileId,
+                message: 'Another terminal command is already running for this room.'
+            });
+            return;
+        }
+
+        const command = validation.command;
+        terminalState.running = true;
+        terminalState.lastCommand = command;
+
+        const promptLine = `$ ${command}\n`;
+        appendTerminalHistory(terminalState, promptLine);
+        io.to(channel).emit('terminal:status', {
+            roomId,
+            fileId,
+            running: true,
+            command,
+            by: socket.data.user || null
+        });
+        io.to(channel).emit('terminal:output', {
+            roomId,
+            fileId,
+            stream: 'system',
+            chunk: promptLine
+        });
+
+        const child = spawn('bash', ['-lc', command], {
+            cwd: process.cwd(),
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        terminalState.process = child;
+
+        let timeoutTriggered = false;
+        const timer = setTimeout(() => {
+            timeoutTriggered = true;
+            child.kill('SIGKILL');
+        }, TERMINAL_TIMEOUT_MS);
+
+        const pushChunk = (stream, data) => {
+            const chunk = data.toString();
+            appendTerminalHistory(terminalState, chunk);
+            io.to(channel).emit('terminal:output', {
+                roomId,
+                fileId,
+                stream,
+                chunk
+            });
+        };
+
+        child.stdout.on('data', (data) => pushChunk('stdout', data));
+        child.stderr.on('data', (data) => pushChunk('stderr', data));
+
+        child.on('error', (error) => {
+            const message = `terminal error: ${error.message || 'unknown error'}\n`;
+            appendTerminalHistory(terminalState, message);
+            io.to(channel).emit('terminal:output', {
+                roomId,
+                fileId,
+                stream: 'stderr',
+                chunk: message
+            });
+        });
+
+        child.on('close', (code, signal) => {
+            clearTimeout(timer);
+            terminalState.running = false;
+            terminalState.process = null;
+
+            const doneLine = timeoutTriggered
+                ? `[done] timed out after ${TERMINAL_TIMEOUT_MS}ms\n`
+                : `[done] exit=${code ?? 'unknown'}${signal ? ` signal=${signal}` : ''}\n`;
+
+            appendTerminalHistory(terminalState, doneLine);
+            io.to(channel).emit('terminal:output', {
+                roomId,
+                fileId,
+                stream: 'system',
+                chunk: doneLine
+            });
+
+            io.to(channel).emit('terminal:done', {
+                roomId,
+                fileId,
+                code,
+                signal,
+                timedOut: timeoutTriggered
+            });
+
+            io.to(channel).emit('terminal:status', {
+                roomId,
+                fileId,
+                running: false,
+                command,
+                by: socket.data.user || null
+            });
+        });
+    });
+
     socket.on('disconnect', () => {
         const roomId = socket.data.roomId;
         const fileId = socket.data.fileId;
@@ -600,6 +769,12 @@ io.on('connection', (socket) => {
 
             if (room.members.size === 0) {
                 collabState.rooms.delete(key);
+
+                const terminalState = collabState.terminals.get(key);
+                if (terminalState?.process) {
+                    terminalState.process.kill('SIGKILL');
+                }
+                collabState.terminals.delete(key);
                 return;
             }
 
