@@ -315,6 +315,9 @@
     align-items: center;
     gap: 0.5rem;
     color: var(--primary);
+    background: transparent;
+    border: none;
+    padding: 0;
     cursor: pointer;
     font-weight: 500;
     transition: gap 0.3s;
