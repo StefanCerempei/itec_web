@@ -101,11 +101,18 @@ const Navbar = () => {
     }
 
     const handleLogoClick = () => {
+        if (isAuthenticated) {
+            navigate('/collab')
+            setIsMenuOpen(false)
+            return
+        }
+
         if (window.location.pathname === '/') {
             window.scrollTo({ top: 0, behavior: 'smooth' })
         } else {
             navigate('/')
         }
+        setIsMenuOpen(false)
     }
 
     return (
@@ -132,7 +139,7 @@ const Navbar = () => {
                     </button>
                     {isAuthenticated && (
                         <button
-                            className="nav-link-modern"
+                            className="nav-link-modern nav-link-collab-mobile"
                             onClick={() => {
                                 navigate('/collab')
                                 setIsMenuOpen(false)
