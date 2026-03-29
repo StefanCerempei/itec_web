@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Editor from '@monaco-editor/react';
 import { API_BASE_URL } from '../lib/apiBaseUrl';
+import likeImage from '../assets/like.jpeg';
+import dislikeImage from '../assets/dislike.jpeg';
 import './CollabRoom.css';
 
 function CollabRoom() {
@@ -36,6 +38,7 @@ function CollabRoom() {
   const [stdin, setStdin] = useState('');
   const [runOutput, setRunOutput] = useState('');
   const [runStatus, setRunStatus] = useState('idle');
+  const [firstRunReaction, setFirstRunReaction] = useState(null);
   const [status, setStatus] = useState('connecting');
   const [saveStatus, setSaveStatus] = useState('idle');
   const [projectSaveStatus, setProjectSaveStatus] = useState('idle');
@@ -1076,6 +1079,12 @@ function CollabRoom() {
       const payload = await res.json();
       if (!res.ok) throw new Error(payload?.message || 'Run failed.');
 
+      if (firstRunReaction === null) {
+        const hasExitCode = typeof payload?.code === 'number';
+        const isSuccessfulRun = hasExitCode ? payload.code === 0 : !payload?.stderr;
+        setFirstRunReaction(isSuccessfulRun ? 'like' : 'dislike');
+      }
+
       const chunks = [];
       if (payload.stdout) chunks.push(`stdout:\n${payload.stdout}`);
       if (payload.stderr) chunks.push(`stderr:\n${payload.stderr}`);
@@ -1085,6 +1094,9 @@ function CollabRoom() {
       setRunStatus('idle');
     } catch (error) {
       setRunStatus('idle');
+      if (firstRunReaction === null) {
+        setFirstRunReaction('dislike');
+      }
       setRunOutput(`Run error: ${error.message || 'Unknown error'}`);
     }
   };
@@ -1272,6 +1284,13 @@ function CollabRoom() {
               placeholder="stdin (optional)"
             />
             <h3>Compiler Output</h3>
+            {firstRunReaction && (
+              <img
+                className="compile-first-reaction"
+                src={firstRunReaction === 'like' ? likeImage : dislikeImage}
+                alt={firstRunReaction === 'like' ? 'First compile succeeded' : 'First compile failed'}
+              />
+            )}
             <pre>{runOutput || 'No output yet. Click Run.'}</pre>
           </div>
         </aside>
