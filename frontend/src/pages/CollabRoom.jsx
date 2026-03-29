@@ -979,6 +979,17 @@ function CollabRoom() {
       setTerminalStatus('idle');
     });
 
+    socket.on('compile:shared', (payload) => {
+      if (payload?.sourceSocketId === mySocketIdRef.current) return;
+
+      const sharedOutput = String(payload?.output || '').trim();
+      const actor = payload?.by?.name || payload?.by?.email || 'Collaborator';
+      const languageLabel = payload?.language || language;
+
+      setRunOutput(`[Shared compiler output from ${actor} (${languageLabel})]\n\n${sharedOutput || '(no output)'}`);
+      setRunStatus('idle');
+    });
+
     return () => {
       if (disconnectTimerRef.current) {
         clearTimeout(disconnectTimerRef.current);
@@ -1188,14 +1199,32 @@ function CollabRoom() {
       if (payload.stderr) chunks.push(`stderr:\n${payload.stderr}`);
       if (!payload.stdout && !payload.stderr && payload.output) chunks.push(payload.output);
       chunks.push(`exit: ${payload.code ?? 'unknown'}`);
-      setRunOutput(chunks.join('\n\n'));
+      const output = chunks.join('\n\n');
+      setRunOutput(output);
+
+      socketRef.current?.emit('compile:share', {
+        roomId: Number(roomId),
+        fileId,
+        language,
+        output,
+        status: 'ok',
+      });
       setRunStatus('idle');
     } catch (error) {
       setRunStatus('idle');
       if (firstRunReaction === null) {
         setFirstRunReaction('dislike');
       }
-      setRunOutput(`Run error: ${error.message || 'Unknown error'}`);
+      const output = `Run error: ${error.message || 'Unknown error'}`;
+      setRunOutput(output);
+
+      socketRef.current?.emit('compile:share', {
+        roomId: Number(roomId),
+        fileId,
+        language,
+        output,
+        status: 'error',
+      });
     }
   };
 
