@@ -77,7 +77,7 @@ function CollabRoom() {
     setShowFirstRunReaction(true);
     const timer = setTimeout(() => {
       setShowFirstRunReaction(false);
-    }, 1000);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [firstRunReaction]);
@@ -331,37 +331,47 @@ function CollabRoom() {
     const nextDecorations = [];
     const nextWidgetIds = new Set();
 
-    const upsertCursorWidget = ({ member, position, labelClass, initial }) => {
+    const upsertCursorWidget = ({ member, position, labelClass, initial, laneIndex, preferBelow }) => {
       const widgetId = `collab-cursor-widget-${member.socketId}`;
       nextWidgetIds.add(widgetId);
 
       const existing = cursorWidgetsRef.current.get(widgetId);
       if (existing) {
-        existing.node.className = `remote-cursor-initial ${labelClass}`;
+        existing.node.className = `remote-cursor-initial ${labelClass} ${preferBelow ? 'remote-cursor-initial-below' : 'remote-cursor-initial-above'}`;
+        existing.node.style.setProperty('--cursor-stack-index', String(laneIndex));
         existing.node.textContent = initial;
-        existing.setPosition(position);
+        existing.setPosition(position, preferBelow);
         editor.layoutContentWidget(existing.widget);
         return;
       }
 
       const node = document.createElement('div');
-      node.className = `remote-cursor-initial ${labelClass}`;
+      node.className = `remote-cursor-initial ${labelClass} ${preferBelow ? 'remote-cursor-initial-below' : 'remote-cursor-initial-above'}`;
+      node.style.setProperty('--cursor-stack-index', String(laneIndex));
       node.textContent = initial;
 
       let currentPosition = position;
+      let currentPreference = preferBelow
+        ? monaco.editor.ContentWidgetPositionPreference.BELOW
+        : monaco.editor.ContentWidgetPositionPreference.ABOVE;
       const widget = {
         getId: () => widgetId,
         getDomNode: () => node,
         getPosition: () => ({
           position: currentPosition,
-          preference: [monaco.editor.ContentWidgetPositionPreference.ABOVE],
+          preference: currentPreference === monaco.editor.ContentWidgetPositionPreference.BELOW
+            ? [monaco.editor.ContentWidgetPositionPreference.BELOW, monaco.editor.ContentWidgetPositionPreference.ABOVE]
+            : [monaco.editor.ContentWidgetPositionPreference.ABOVE, monaco.editor.ContentWidgetPositionPreference.BELOW],
         }),
         allowEditorOverflow: true,
         suppressMouseDown: true,
       };
 
-      const setPosition = (nextPosition) => {
+      const setPosition = (nextPosition, nextPreferBelow) => {
         currentPosition = nextPosition;
+        currentPreference = nextPreferBelow
+          ? monaco.editor.ContentWidgetPositionPreference.BELOW
+          : monaco.editor.ContentWidgetPositionPreference.ABOVE;
       };
 
       editor.addContentWidget(widget);
@@ -379,6 +389,8 @@ function CollabRoom() {
         cursorWidgetsRef.current.delete(widgetId);
       });
     };
+
+    const lineStackCounts = new Map();
 
     remoteMembers.forEach((member) => {
       const collaboratorClasses = ensureCollaboratorClasses(member);
@@ -399,6 +411,10 @@ function CollabRoom() {
         ),
       };
       if (!position) return;
+
+      const laneIndex = lineStackCounts.get(position.lineNumber) || 0;
+      lineStackCounts.set(position.lineNumber, laneIndex + 1);
+      const preferBelow = position.lineNumber === 1;
 
       const lineRange = new monaco.Range(
         position.lineNumber,
@@ -438,6 +454,8 @@ function CollabRoom() {
         position,
         labelClass: collaboratorClasses.labelClass,
         initial: collaboratorBadgeText,
+        laneIndex,
+        preferBelow,
       });
     });
 
