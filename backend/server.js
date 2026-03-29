@@ -94,6 +94,10 @@ const EXEC_LIMIT_MEMORY_BYTES = Math.min(
     2 * 1024 * 1024 * 1024
 );
 const EXEC_LIMIT_NPROC = Math.min(Math.max(Number(process.env.EXEC_LIMIT_NPROC) || 96, 16), 512);
+const EXEC_OUTPUT_MAX_LENGTH = Math.min(
+    Math.max(Number(process.env.EXEC_OUTPUT_MAX_LENGTH) || 200000, 20000),
+    2 * 1024 * 1024
+);
 
 const TERMINAL_BLOCKED_PATTERN = /(rm\s+-rf\s+\/|shutdown|reboot|poweroff|mkfs|:\s*\(\)\s*\{|dd\s+if=|sudo\s+|\n|\r)/i;
 
@@ -873,16 +877,77 @@ const LOCAL_VIRTUAL_LANGUAGE_SET = new Set([
 
 const runSpawnedProcess = ({ command, args, stdin, timeoutMs }) =>
     new Promise((resolve, reject) => {
-        const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+        const isWindows = process.platform === 'win32';
+        const child = spawn(command, args, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            detached: !isWindows
+        });
 
         let stdout = '';
         let stderr = '';
         let finished = false;
+        let stdoutTruncated = false;
+        let stderrTruncated = false;
+
+        const killChildTree = () => {
+            try {
+                if (isWindows) {
+                    child.kill('SIGKILL');
+                    return;
+                }
+
+                if (typeof child.pid === 'number' && child.pid > 0) {
+                    process.kill(-child.pid, 'SIGKILL');
+                    return;
+                }
+            } catch (error) {
+                // Ignore ESRCH when the process has already exited.
+                if (error?.code !== 'ESRCH') {
+                    try {
+                        child.kill('SIGKILL');
+                    } catch {
+                        // noop
+                    }
+                }
+                return;
+            }
+
+            try {
+                child.kill('SIGKILL');
+            } catch {
+                // noop
+            }
+        };
+
+        const appendOutput = (target, chunkText) => {
+            const available = EXEC_OUTPUT_MAX_LENGTH - target.length;
+            if (available <= 0) {
+                return { value: target, truncated: true };
+            }
+
+            if (chunkText.length <= available) {
+                return { value: target + chunkText, truncated: false };
+            }
+
+            return {
+                value: target + chunkText.slice(0, available),
+                truncated: true
+            };
+        };
+
+        const buildTruncatedNotice = (streamName) =>
+            `\n[${streamName} truncated at ${EXEC_OUTPUT_MAX_LENGTH} bytes]`;
+
+        const finalizeOutput = () => {
+            if (stdoutTruncated) stdout = `${stdout}${buildTruncatedNotice('stdout')}`;
+            if (stderrTruncated) stderr = `${stderr}${buildTruncatedNotice('stderr')}`;
+        };
 
         const timer = setTimeout(() => {
             if (finished) return;
             finished = true;
-            child.kill('SIGKILL');
+            killChildTree();
+            finalizeOutput();
             resolve({
                 stdout,
                 stderr: `${stderr}\nExecution timed out after ${timeoutMs}ms`.trim(),
@@ -892,11 +957,15 @@ const runSpawnedProcess = ({ command, args, stdin, timeoutMs }) =>
         }, timeoutMs);
 
         child.stdout.on('data', (chunk) => {
-            stdout += chunk.toString();
+            const next = appendOutput(stdout, chunk.toString());
+            stdout = next.value;
+            stdoutTruncated = stdoutTruncated || next.truncated;
         });
 
         child.stderr.on('data', (chunk) => {
-            stderr += chunk.toString();
+            const next = appendOutput(stderr, chunk.toString());
+            stderr = next.value;
+            stderrTruncated = stderrTruncated || next.truncated;
         });
 
         child.on('error', (error) => {
@@ -910,6 +979,7 @@ const runSpawnedProcess = ({ command, args, stdin, timeoutMs }) =>
             if (finished) return;
             finished = true;
             clearTimeout(timer);
+            finalizeOutput();
             resolve({ stdout, stderr, code, signal });
         });
 
