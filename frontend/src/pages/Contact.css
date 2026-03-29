@@ -255,8 +255,17 @@
 }
 
 @media (max-width: 768px) {
+    .container {
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+    }
+    
     .contact-title {
         font-size: 2rem;
+    }
+    
+    .contact-subtitle {
+        font-size: 1rem;
     }
     
     .contact-grid {
@@ -264,19 +273,77 @@
         gap: 2rem;
     }
     
+    .contact-form-section,
+    .info-card {
+        padding: 1.5rem;
+    }
+    
+    .form-group input,
+    .form-group textarea {
+        font-size: 16px; /* previne zoom-ul automat pe iOS */
+        padding: 0.75rem;
+    }
+    
+    .submit-btn {
+        width: 100%;
+        padding: 0.75rem;
+        font-size: 1rem;
+    }
+    
     .team-member {
         flex-direction: column;
+        align-items: center;
         text-align: center;
-        gap: 1rem;
+        gap: 0.75rem;
+        padding: 1rem 0;
+        border-bottom: 1px solid rgba(0,0,0,0.1);
+    }
+    
+    .team-member:last-child {
+        border-bottom: none;
+    }
+    
+    .member-info {
+        margin-bottom: 0.5rem;
     }
     
     .instagram-link {
-        width: 100%;
+        width: auto;
+        display: inline-flex;
         justify-content: center;
+        padding: 0.5rem 1rem;
+        background: #f0f0f0;
+        border-radius: 30px;
+        font-size: 0.9rem;
+        text-decoration: none;
+        color: #333;
     }
     
     .method {
         flex-direction: column;
+        align-items: center;
         text-align: center;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .method-icon {
+        font-size: 2rem;
+    }
+    
+    .contact-link {
+        word-break: break-word; /* pentru link-ul lung de GitHub */
+        display: inline-block;
+        padding: 0.5rem 0;
+    }
+    
+    .info-card h3 {
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .team-description {
+        font-size: 0.95rem;
+        margin-bottom: 1.5rem;
     }
 }

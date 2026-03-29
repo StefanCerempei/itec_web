@@ -12,6 +12,11 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    
+    /* --- MODIFICĂRILE GLOBALE --- */
+    background-color: #1a1a2e; /* Forțează fundalul dark pe tot site-ul */
+    color: #e2e8f0; /* Face textul de bază deschis la culoare peste tot */
+    min-height: 100vh; /* Se asigură că fundalul acoperă mereu tot ecranul, chiar și pe pagini goale */
 }
 
 html {
