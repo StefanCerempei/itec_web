@@ -1023,21 +1023,44 @@ const executeRustCode = async ({ code, stdin, timeoutMs }) => {
     }
 };
 
-const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-run-'));
+const executeCSharpWithDotnet = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-dotnet-'));
     const sourcePath = path.join(workspaceDir, 'Program.cs');
-    const outputPath = path.join(workspaceDir, 'program.exe');
+    const projectPath = path.join(workspaceDir, 'App.csproj');
+    const outputDir = path.join(workspaceDir, 'out');
+    const outputDllPath = path.join(outputDir, 'App.dll');
 
     try {
         await fs.writeFile(sourcePath, code, 'utf8');
+        await fs.writeFile(
+            projectPath,
+            [
+                '<Project Sdk="Microsoft.NET.Sdk">',
+                '  <PropertyGroup>',
+                '    <OutputType>Exe</OutputType>',
+                '    <TargetFramework>net8.0</TargetFramework>',
+                '    <ImplicitUsings>disable</ImplicitUsings>',
+                '    <Nullable>disable</Nullable>',
+                '  </PropertyGroup>',
+                '</Project>'
+            ].join('\n'),
+            'utf8'
+        );
 
-        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const compileTimeoutMs = Math.min(timeoutMs, 12000);
         const { run: compileRun, command: compileCommand } = await executeWithCommandFallback({
-            commandCandidates: ['mcs', 'csc'],
-            argsFromCommand: (command) => {
-                if (command === 'mcs') return [sourcePath, '-out:' + outputPath];
-                return ['-out:' + outputPath, sourcePath];
-            },
+            commandCandidates: ['dotnet'],
+            argsFromCommand: () => [
+                'build',
+                projectPath,
+                '-c',
+                'Release',
+                '-nologo',
+                '-v',
+                'q',
+                '-o',
+                outputDir
+            ],
             stdin: '',
             timeoutMs: compileTimeoutMs
         });
@@ -1054,11 +1077,86 @@ const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
         }
 
         const { run, command } = await executeWithCommandFallback({
-            commandCandidates: ['mono'],
-            argsFromCommand: () => [outputPath],
+            commandCandidates: ['dotnet'],
+            argsFromCommand: () => [outputDllPath],
             stdin,
             timeoutMs
         });
+
+        return {
+            stage: 'run',
+            runtime: `${compileCommand}+${command}`,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
+const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-run-'));
+    const sourcePath = path.join(workspaceDir, 'Program.cs');
+    const outputPath = path.join(workspaceDir, 'program.exe');
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        let compileRun;
+        let compileCommand;
+
+        try {
+            const compileResult = await executeWithCommandFallback({
+                commandCandidates: ['mcs', 'csc'],
+                argsFromCommand: (command) => {
+                    if (command === 'mcs') return [sourcePath, '-out:' + outputPath];
+                    return ['-out:' + outputPath, sourcePath];
+                },
+                stdin: '',
+                timeoutMs: compileTimeoutMs
+            });
+
+            compileRun = compileResult.run;
+            compileCommand = compileResult.command;
+        } catch (error) {
+            if (error?.code === 'ENOENT') {
+                return executeCSharpWithDotnet({ code, stdin, timeoutMs });
+            }
+            throw error;
+        }
+
+        if (compileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: compileCommand,
+                stdout: compileRun.stdout || '',
+                stderr: compileRun.stderr || '',
+                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
+                signal: compileRun.signal || null
+            };
+        }
+
+        let run;
+        let command;
+
+        try {
+            const runResult = await executeWithCommandFallback({
+                commandCandidates: ['mono'],
+                argsFromCommand: () => [outputPath],
+                stdin,
+                timeoutMs
+            });
+            run = runResult.run;
+            command = runResult.command;
+        } catch (error) {
+            if (error?.code === 'ENOENT') {
+                return executeCSharpWithDotnet({ code, stdin, timeoutMs });
+            }
+            throw error;
+        }
 
         return {
             stage: 'run',
