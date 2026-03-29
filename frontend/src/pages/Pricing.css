@@ -1,0 +1,315 @@
+/* Pricing Page - Modern Design */
+.pricing-modern {
+    background: linear-gradient(135deg, var(--dark) 0%, var(--darker) 100%);
+    color: white;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+.pricing-main {
+    padding: 6rem 0 4rem;
+    position: relative;
+    z-index: 2;
+}
+
+/* Hero Section */
+.pricing-hero {
+    text-align: center;
+    margin-bottom: 4rem;
+}
+
+.pricing-hero .section-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--glass);
+    backdrop-filter: blur(10px);
+    padding: 0.5rem 1rem;
+    border-radius: 100px;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--glass-border);
+}
+
+.pricing-title {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 1.5rem;
+    animation: fadeInUp 0.6s ease;
+}
+
+.pricing-subtitle {
+    font-size: 1.125rem;
+    color: rgba(255, 255, 255, 0.7);
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+    animation: fadeInUp 0.6s ease 0.1s both;
+}
+
+/* Pricing Cards Grid */
+.pricing-grid-modern {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 2rem;
+    margin-bottom: 6rem;
+}
+
+.pricing-card-modern {
+    background: var(--glass);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 2rem;
+    position: relative;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeInUp 0.6s ease-out both;
+}
+
+.pricing-card-modern:hover {
+    transform: translateY(-8px);
+    border-color: var(--primary);
+    box-shadow: var(--glow);
+}
+
+.pricing-card-modern.popular {
+    border: 2px solid var(--primary);
+    transform: scale(1.05);
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+}
+
+.pricing-card-modern.popular:hover {
+    transform: scale(1.05) translateY(-5px);
+}
+
+.popular-badge-modern {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    padding: 0.35rem 1rem;
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.card-header-modern {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.plan-name-modern {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.plan-description-modern {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.plan-price-modern {
+    text-align: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.currency {
+    font-size: 1.5rem;
+    vertical-align: top;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.price {
+    font-size: 3.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.period {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.plan-features-modern {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 2rem 0;
+}
+
+.plan-features-modern li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.875rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.check-icon-modern {
+    width: 18px;
+    height: 18px;
+    color: #10b981;
+    flex-shrink: 0;
+}
+
+.plan-button-modern {
+    width: 100%;
+    padding: 0.875rem;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.plan-button-modern.primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+}
+
+.plan-button-modern.secondary {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    color: white;
+}
+
+.plan-button-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--glow);
+}
+
+.plan-button-modern .btn-icon {
+    width: 18px;
+    height: 18px;
+    transition: transform 0.3s;
+}
+
+.plan-button-modern:hover .btn-icon {
+    transform: translateX(4px);
+}
+
+/* FAQ Section */
+.pricing-faq-modern {
+    margin-bottom: 6rem;
+}
+
+.faq-grid-modern {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-top: 3rem;
+}
+
+.faq-item-modern {
+    background: var(--glass);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 1.5rem;
+    transition: all 0.3s ease;
+}
+
+.faq-item-modern:hover {
+    transform: translateY(-4px);
+    border-color: var(--primary);
+}
+
+.faq-item-modern h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--primary);
+}
+
+.faq-item-modern p {
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.6;
+    font-size: 0.875rem;
+}
+
+/* Pricing CTA */
+.pricing-cta {
+    margin-top: 2rem;
+    border-radius: 32px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* Responsive Design */
+@media (max-width: 968px) {
+    .pricing-main {
+        padding: 4rem 0 3rem;
+    }
+
+    .pricing-title {
+        font-size: 2.5rem;
+    }
+
+    .pricing-grid-modern {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+
+    .pricing-card-modern.popular {
+        transform: scale(1);
+    }
+
+    .pricing-card-modern.popular:hover {
+        transform: translateY(-5px);
+    }
+
+    .faq-grid-modern {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .pricing-title {
+        font-size: 1.75rem;
+    }
+
+    .pricing-subtitle {
+        font-size: 1rem;
+    }
+
+    .price {
+        font-size: 2.5rem;
+    }
+
+    .plan-name-modern {
+        font-size: 1.5rem;
+    }
+}

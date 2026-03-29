@@ -225,21 +225,44 @@ const Contact = () => {
                                         <span className="method-icon">📧</span>
                                         <div>
                                             <strong>Email</strong>
-                                            <p>contact@itecify.com</p>
+                                            <p>
+                                                <a href="mailto:itec.ssab123@gmail.com" className="contact-link">
+                                                    itec.ssab123@gmail.com
+                                                </a>
+                                            </p>
                                         </div>
                                     </div>
                                     <div className="method">
                                         <span className="method-icon">💬</span>
                                         <div>
                                             <strong>Discord</strong>
-                                            <p>Join our community server</p>
+                                            <p>
+                                                <a 
+                                                    href="https://discord.gg/invite-code" 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="contact-link"
+                                                >
+                                                    Join our community server
+                                                </a>
+                                            </p>
+                                            {/* Notă: Înlocuiește 'invite-code' cu link-ul real de invitație Discord */}
                                         </div>
                                     </div>
                                     <div className="method">
                                         <span className="method-icon">🐙</span>
                                         <div>
                                             <strong>GitHub</strong>
-                                            <p>Check out our open source projects</p>
+                                            <p>
+                                                <a 
+                                                    href="https://github.com/StefanCerempei/itec_web" 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="contact-link"
+                                                >
+                                                    https://github.com/StefanCerempei/itec_web
+                                                </a>
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
