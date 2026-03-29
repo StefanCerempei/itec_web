@@ -33,7 +33,7 @@ const SignIn = () => {
             const { session } = data
             localStorage.setItem('authToken', session.access_token)
             localStorage.setItem('authUser', JSON.stringify(session.user))
-            navigate('/create')
+            navigate('/collab')
         }
 
         syncSupabaseSession()
@@ -60,7 +60,7 @@ const SignIn = () => {
             localStorage.setItem('authUser', JSON.stringify(payload.user))
             localStorage.setItem('rememberMe', String(rememberMe))
 
-            navigate('/create')
+            navigate('/collab')
         } catch (error) {
             setErrorMessage(error.message || 'Unable to sign in.')
         } finally {

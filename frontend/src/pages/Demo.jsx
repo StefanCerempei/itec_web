@@ -201,7 +201,7 @@ console.log(greetUser("Developer"));
     };
 
     const startCollabSession = () => {
-        navigate('/collab-hub');
+        navigate('/collab');
     };
 
     return (

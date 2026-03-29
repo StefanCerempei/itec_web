@@ -138,7 +138,7 @@ const Navbar = () => {
                             <button className="btn-login-modern" onClick={handleLogout}>
                                 Log Out
                             </button>
-                            <button className="btn-signup-modern" onClick={() => navigate('/create')}>
+                            <button className="btn-signup-modern" onClick={() => navigate('/collab')}>
                                 {accountLabel}
                             </button>
                         </>

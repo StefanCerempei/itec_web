@@ -5,6 +5,7 @@ import SignIn from './pages/SignIn'
 import SignUp from './pages/SignUp'
 import CollabHub from './pages/CollabHub'
 import CollabRoom from './pages/CollabRoom'
+import Demo from './pages/Demo'
 import Pricing from './pages/Pricing'
 import Contact from './pages/Contact'
 import Careers from './pages/Careers'
@@ -29,6 +30,7 @@ function App() {
                     <Route path="/collab" element={<CollabHub />} />
                     <Route path="/collab/:roomId" element={<CollabRoom />} />
                     <Route path="/collab/:roomId/:fileId" element={<CollabRoom />} />
+                    <Route path="/demo" element={<Demo />} />
                     <Route path="/pricing" element={<Pricing />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/careers" element={<Careers />} />

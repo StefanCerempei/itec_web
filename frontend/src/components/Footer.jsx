@@ -12,14 +12,14 @@ const Footer = () => {
                         <p>Building the future of collaborative coding, one line at a time.</p>
                         <div className="social-links">
                             <a href="https://github.com/StefanCerempei/itec_web" target="_blank" rel="noopener noreferrer" className="social-link">🐙 GitHub</a>
-                            <a href="#" className="social-link">💬 Discord</a>
-                            <a href="#" className="social-link">🐦 Twitter</a>
+                            <a href="https://discord.gg/invite-code" target="_blank" rel="noopener noreferrer" className="social-link">💬 Discord</a>
+                            <a href="/contact" className="social-link">🐦 Twitter</a>
                         </div>
                     </div>
 
                     <div className="footer-section">
                         <h4>Product</h4>
-                        <Link to="/features" className="nav-link">Features</Link>
+                        <a href="/#features" className="nav-link">Features</a>
                         <Link to="/pricing" className="nav-link">Pricing</Link>
                         <Link to="/documentation" className="nav-link">Documentation</Link>
                         <Link to="/api-reference" className="nav-link">API Reference</Link>
