@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Welcome from './pages/Welcome'
 import SignIn from './pages/SignIn'
 import SignUp from './pages/SignUp'
@@ -19,12 +19,18 @@ import GDPR from './pages/GDPR'
 import Security from './pages/Security'
 import './App.css'
 
+function HomeEntry() {
+    if (typeof window === 'undefined') return <Welcome />
+    const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
+    return isAuthenticated ? <Navigate to="/collab" replace /> : <Welcome />
+}
+
 function App() {
     return (
         <Router>
             <div className="App">
                 <Routes>
-                    <Route path="/" element={<Welcome />} />
+                    <Route path="/" element={<HomeEntry />} />
                     <Route path="/signin" element={<SignIn />} />
                     <Route path="/signup" element={<SignUp />} />
                     <Route path="/collab" element={<CollabHub />} />
