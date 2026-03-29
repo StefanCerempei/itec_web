@@ -632,6 +632,15 @@ const LOCAL_RUNNER_MAP = {
     }
 };
 
+const LOCAL_FILE_RUNNER_MAP = {
+    go: {
+        sourceExt: '.go',
+        commands: ['go'],
+        argsFromPath: (sourcePath) => ['run', sourcePath],
+        runtime: 'go'
+    }
+};
+
 const LOCAL_COMPILED_RUNNER_MAP = {
     c: {
         compilers: ['gcc', 'clang'],
@@ -646,6 +655,16 @@ const LOCAL_COMPILED_RUNNER_MAP = {
         runtime: 'cpp'
     }
 };
+
+const LOCAL_VIRTUAL_LANGUAGE_SET = new Set([
+    'json',
+    'html',
+    'css',
+    'markdown',
+    'sql',
+    'yaml',
+    'plaintext'
+]);
 
 const executeProcess = ({ command, args, stdin, timeoutMs }) =>
     new Promise((resolve, reject) => {
@@ -773,6 +792,319 @@ const executeCompiledCode = async ({ language, code, stdin, timeoutMs }) => {
     } finally {
         await fs.rm(workspaceDir, { recursive: true, force: true });
     }
+};
+
+const executeWithCommandFallback = async ({ commandCandidates, argsFromCommand, stdin, timeoutMs }) => {
+    let missingError = null;
+
+    for (const command of commandCandidates || []) {
+        try {
+            const run = await executeProcess({
+                command,
+                args: argsFromCommand(command),
+                stdin: typeof stdin === 'string' ? stdin : '',
+                timeoutMs
+            });
+            return { run, command };
+        } catch (error) {
+            if (error?.code === 'ENOENT') {
+                missingError = error;
+                continue;
+            }
+            throw error;
+        }
+    }
+
+    const missingExecutableError = missingError || new Error('No matching executable found.');
+    missingExecutableError.code = 'ENOENT';
+    missingExecutableError.path = (commandCandidates || []).join(' or ');
+    throw missingExecutableError;
+};
+
+const executeFileRunnerCode = async ({ language, code, stdin, timeoutMs }) => {
+    const mapped = LOCAL_FILE_RUNNER_MAP[language];
+    if (!mapped) {
+        throw new Error(`No file runner configured for language: ${language}`);
+    }
+
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-file-run-'));
+    const sourcePath = path.join(workspaceDir, `main${mapped.sourceExt}`);
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const { run, command } = await executeWithCommandFallback({
+            commandCandidates: mapped.commands,
+            argsFromCommand: () => mapped.argsFromPath(sourcePath),
+            stdin,
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: command || mapped.runtime,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
+const executeTypeScriptCode = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-ts-run-'));
+    const sourcePath = path.join(workspaceDir, 'main.ts');
+    const transpiledDir = path.join(workspaceDir, 'dist');
+    const transpiledPath = path.join(transpiledDir, 'main.js');
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const directRun = await executeWithCommandFallback({
+            commandCandidates: ['ts-node', 'tsx'],
+            argsFromCommand: () => [sourcePath],
+            stdin,
+            timeoutMs
+        }).catch((error) => {
+            if (error?.code === 'ENOENT') return null;
+            throw error;
+        });
+
+        if (directRun?.run) {
+            return {
+                stage: 'run',
+                runtime: directRun.command,
+                stdout: directRun.run.stdout || '',
+                stderr: directRun.run.stderr || '',
+                code: Number.isInteger(directRun.run.code) ? directRun.run.code : null,
+                signal: directRun.run.signal || null
+            };
+        }
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const { run: transpileRun, command: transpileCommand } = await executeWithCommandFallback({
+            commandCandidates: ['tsc'],
+            argsFromCommand: () => [
+                sourcePath,
+                '--target',
+                'ES2020',
+                '--module',
+                'commonjs',
+                '--outDir',
+                transpiledDir
+            ],
+            stdin: '',
+            timeoutMs: compileTimeoutMs
+        });
+
+        if (transpileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: transpileCommand,
+                stdout: transpileRun.stdout || '',
+                stderr: transpileRun.stderr || '',
+                code: Number.isInteger(transpileRun.code) ? transpileRun.code : null,
+                signal: transpileRun.signal || null
+            };
+        }
+
+        const run = await executeProcess({
+            command: process.execPath,
+            args: [transpiledPath],
+            stdin: typeof stdin === 'string' ? stdin : '',
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: `${transpileCommand}+node`,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
+const executeJavaCode = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-java-run-'));
+    const sourcePath = path.join(workspaceDir, 'Main.java');
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const { run: compileRun, command: compileCommand } = await executeWithCommandFallback({
+            commandCandidates: ['javac'],
+            argsFromCommand: () => [sourcePath],
+            stdin: '',
+            timeoutMs: compileTimeoutMs
+        });
+
+        if (compileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: compileCommand,
+                stdout: compileRun.stdout || '',
+                stderr: compileRun.stderr || '',
+                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
+                signal: compileRun.signal || null
+            };
+        }
+
+        const { run, command } = await executeWithCommandFallback({
+            commandCandidates: ['java'],
+            argsFromCommand: () => ['-cp', workspaceDir, 'Main'],
+            stdin,
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: `${compileCommand}+${command}`,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
+const executeRustCode = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-rust-run-'));
+    const sourcePath = path.join(workspaceDir, 'main.rs');
+    const outputPath = path.join(workspaceDir, process.platform === 'win32' ? 'program.exe' : 'program');
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const { run: compileRun, command: compileCommand } = await executeWithCommandFallback({
+            commandCandidates: ['rustc'],
+            argsFromCommand: () => [sourcePath, '-O', '-o', outputPath],
+            stdin: '',
+            timeoutMs: compileTimeoutMs
+        });
+
+        if (compileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: compileCommand,
+                stdout: compileRun.stdout || '',
+                stderr: compileRun.stderr || '',
+                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
+                signal: compileRun.signal || null
+            };
+        }
+
+        const run = await executeProcess({
+            command: outputPath,
+            args: [],
+            stdin: typeof stdin === 'string' ? stdin : '',
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: compileCommand,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
+const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-run-'));
+    const sourcePath = path.join(workspaceDir, 'Program.cs');
+    const outputPath = path.join(workspaceDir, 'program.exe');
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const { run: compileRun, command: compileCommand } = await executeWithCommandFallback({
+            commandCandidates: ['mcs', 'csc'],
+            argsFromCommand: (command) => {
+                if (command === 'mcs') return [sourcePath, '-out:' + outputPath];
+                return ['-out:' + outputPath, sourcePath];
+            },
+            stdin: '',
+            timeoutMs: compileTimeoutMs
+        });
+
+        if (compileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: compileCommand,
+                stdout: compileRun.stdout || '',
+                stderr: compileRun.stderr || '',
+                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
+                signal: compileRun.signal || null
+            };
+        }
+
+        const { run, command } = await executeWithCommandFallback({
+            commandCandidates: ['mono'],
+            argsFromCommand: () => [outputPath],
+            stdin,
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: `${compileCommand}+${command}`,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
+const executeVirtualLanguage = ({ language, code }) => {
+    if (language === 'json') {
+        try {
+            const parsed = JSON.parse(code);
+            return {
+                stage: 'validate',
+                runtime: 'json-parser',
+                stdout: `${JSON.stringify(parsed, null, 2)}\n`,
+                stderr: '',
+                code: 0,
+                signal: null
+            };
+        } catch (error) {
+            return {
+                stage: 'validate',
+                runtime: 'json-parser',
+                stdout: '',
+                stderr: `Invalid JSON: ${error.message}`,
+                code: 1,
+                signal: null
+            };
+        }
+    }
+
+    return {
+        stage: 'preview',
+        runtime: `virtual-${language}`,
+        stdout: code || '',
+        stderr: '',
+        code: 0,
+        signal: null
+    };
 };
 
 const updateRoomFileRecord = async ({ roomId, fileId, content, language, userId }) => {
@@ -1734,12 +2066,23 @@ app.post('/api/compile', async (req, res, next) => {
 
         const normalizedLanguage = String(language).toLowerCase();
         const interpretedRunner = LOCAL_RUNNER_MAP[normalizedLanguage];
+        const fileRunner = LOCAL_FILE_RUNNER_MAP[normalizedLanguage];
         const compiledRunner = LOCAL_COMPILED_RUNNER_MAP[normalizedLanguage];
+        const isVirtualLanguage = LOCAL_VIRTUAL_LANGUAGE_SET.has(normalizedLanguage);
 
-        if (!interpretedRunner && !compiledRunner) {
+        if (!interpretedRunner && !fileRunner && !compiledRunner && normalizedLanguage !== 'typescript' && normalizedLanguage !== 'java' && normalizedLanguage !== 'rust' && normalizedLanguage !== 'csharp' && !isVirtualLanguage) {
             return res.status(400).json({
                 message: `Language ${language} is not supported by local runner.`,
-                supported: [...Object.keys(LOCAL_RUNNER_MAP), ...Object.keys(LOCAL_COMPILED_RUNNER_MAP)]
+                supported: [
+                    ...Object.keys(LOCAL_RUNNER_MAP),
+                    ...Object.keys(LOCAL_FILE_RUNNER_MAP),
+                    ...Object.keys(LOCAL_COMPILED_RUNNER_MAP),
+                    'typescript',
+                    'java',
+                    'rust',
+                    'csharp',
+                    ...Array.from(LOCAL_VIRTUAL_LANGUAGE_SET)
+                ]
             });
         }
 
@@ -1763,6 +2106,96 @@ app.post('/api/compile', async (req, res, next) => {
                 language: normalizedLanguage,
                 runtime: interpretedRunner.runtime,
                 stage: 'run'
+            });
+        }
+
+        if (fileRunner) {
+            run = await executeFileRunnerCode({
+                language: normalizedLanguage,
+                code,
+                stdin,
+                timeoutMs: executionTimeout
+            });
+
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || fileRunner.runtime,
+                stage: run.stage || 'run'
+            });
+        }
+
+        if (normalizedLanguage === 'typescript') {
+            run = await executeTypeScriptCode({ code, stdin, timeoutMs: executionTimeout });
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || 'typescript',
+                stage: run.stage || 'run'
+            });
+        }
+
+        if (normalizedLanguage === 'java') {
+            run = await executeJavaCode({ code, stdin, timeoutMs: executionTimeout });
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || 'java',
+                stage: run.stage || 'run'
+            });
+        }
+
+        if (normalizedLanguage === 'rust') {
+            run = await executeRustCode({ code, stdin, timeoutMs: executionTimeout });
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || 'rust',
+                stage: run.stage || 'run'
+            });
+        }
+
+        if (normalizedLanguage === 'csharp') {
+            run = await executeCSharpCode({ code, stdin, timeoutMs: executionTimeout });
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || 'csharp',
+                stage: run.stage || 'run'
+            });
+        }
+
+        if (isVirtualLanguage) {
+            run = executeVirtualLanguage({ language: normalizedLanguage, code });
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || `virtual-${normalizedLanguage}`,
+                stage: run.stage || 'preview'
             });
         }
 
