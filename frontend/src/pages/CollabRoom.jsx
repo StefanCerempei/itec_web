@@ -78,7 +78,7 @@ function CollabRoom() {
     if (normalized.endsWith('.rs')) return 'rust';
     if (normalized.endsWith('.cpp') || normalized.endsWith('.cc') || normalized.endsWith('.cxx')) return 'cpp';
     if (normalized.endsWith('.c')) return 'c';
-    if (normalized.endsWith('.cs')) return 'plaintext';
+    if (normalized.endsWith('.cs')) return 'csharp';
     if (normalized.endsWith('.json')) return 'json';
     if (normalized.endsWith('.html')) return 'html';
     if (normalized.endsWith('.css')) return 'css';
@@ -1058,6 +1058,7 @@ function CollabRoom() {
         go: 12000,
         rust: 12000,
         typescript: 10000,
+        csharp: 10000,
       };
       const timeoutMs = heavyRuntimeTimeouts[language] || 7000;
 
@@ -1206,6 +1207,7 @@ function CollabRoom() {
               <option value="rust">Rust</option>
               <option value="cpp">C++</option>
               <option value="c">C</option>
+              <option value="csharp">C#</option>
               <option value="json">JSON</option>
               <option value="html">HTML</option>
               <option value="css">CSS</option>

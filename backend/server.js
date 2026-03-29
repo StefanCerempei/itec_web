@@ -1023,6 +1023,56 @@ const executeRustCode = async ({ code, stdin, timeoutMs }) => {
     }
 };
 
+const executeCSharpCode = async ({ code, stdin, timeoutMs }) => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'itecify-cs-run-'));
+    const sourcePath = path.join(workspaceDir, 'Program.cs');
+    const outputPath = path.join(workspaceDir, 'program.exe');
+
+    try {
+        await fs.writeFile(sourcePath, code, 'utf8');
+
+        const compileTimeoutMs = Math.min(timeoutMs, 10000);
+        const { run: compileRun, command: compileCommand } = await executeWithCommandFallback({
+            commandCandidates: ['mcs', 'csc'],
+            argsFromCommand: (command) => {
+                if (command === 'mcs') return [sourcePath, '-out:' + outputPath];
+                return ['-out:' + outputPath, sourcePath];
+            },
+            stdin: '',
+            timeoutMs: compileTimeoutMs
+        });
+
+        if (compileRun.code !== 0) {
+            return {
+                stage: 'compile',
+                runtime: compileCommand,
+                stdout: compileRun.stdout || '',
+                stderr: compileRun.stderr || '',
+                code: Number.isInteger(compileRun.code) ? compileRun.code : null,
+                signal: compileRun.signal || null
+            };
+        }
+
+        const { run, command } = await executeWithCommandFallback({
+            commandCandidates: ['mono'],
+            argsFromCommand: () => [outputPath],
+            stdin,
+            timeoutMs
+        });
+
+        return {
+            stage: 'run',
+            runtime: `${compileCommand}+${command}`,
+            stdout: run.stdout || '',
+            stderr: run.stderr || '',
+            code: Number.isInteger(run.code) ? run.code : null,
+            signal: run.signal || null
+        };
+    } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+};
+
 const executeVirtualLanguage = ({ language, code }) => {
     if (language === 'json') {
         try {
@@ -2020,7 +2070,7 @@ app.post('/api/compile', async (req, res, next) => {
         const compiledRunner = LOCAL_COMPILED_RUNNER_MAP[normalizedLanguage];
         const isVirtualLanguage = LOCAL_VIRTUAL_LANGUAGE_SET.has(normalizedLanguage);
 
-        if (!interpretedRunner && !fileRunner && !compiledRunner && normalizedLanguage !== 'typescript' && normalizedLanguage !== 'java' && normalizedLanguage !== 'rust' && !isVirtualLanguage) {
+        if (!interpretedRunner && !fileRunner && !compiledRunner && normalizedLanguage !== 'typescript' && normalizedLanguage !== 'java' && normalizedLanguage !== 'rust' && normalizedLanguage !== 'csharp' && !isVirtualLanguage) {
             return res.status(400).json({
                 message: `Language ${language} is not supported by local runner.`,
                 supported: [
@@ -2030,6 +2080,7 @@ app.post('/api/compile', async (req, res, next) => {
                     'typescript',
                     'java',
                     'rust',
+                    'csharp',
                     ...Array.from(LOCAL_VIRTUAL_LANGUAGE_SET)
                 ]
             });
@@ -2116,6 +2167,20 @@ app.post('/api/compile', async (req, res, next) => {
                 signal: run.signal || null,
                 language: normalizedLanguage,
                 runtime: run.runtime || 'rust',
+                stage: run.stage || 'run'
+            });
+        }
+
+        if (normalizedLanguage === 'csharp') {
+            run = await executeCSharpCode({ code, stdin, timeoutMs: executionTimeout });
+            return res.status(200).json({
+                stdout: run.stdout || '',
+                stderr: run.stderr || '',
+                output: `${run.stdout || ''}${run.stderr || ''}`,
+                code: Number.isInteger(run.code) ? run.code : null,
+                signal: run.signal || null,
+                language: normalizedLanguage,
+                runtime: run.runtime || 'csharp',
                 stage: run.stage || 'run'
             });
         }
