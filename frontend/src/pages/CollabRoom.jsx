@@ -1093,7 +1093,8 @@ function CollabRoom() {
 
       if (firstRunReaction === null) {
         const hasExitCode = typeof payload?.code === 'number';
-        const isSuccessfulRun = hasExitCode ? payload.code === 0 : !payload?.stderr;
+        const hasStderr = typeof payload?.stderr === 'string' && payload.stderr.trim().length > 0;
+        const isSuccessfulRun = !hasStderr && (!hasExitCode || payload.code === 0);
         setFirstRunReaction(isSuccessfulRun ? 'like' : 'dislike');
       }
 
