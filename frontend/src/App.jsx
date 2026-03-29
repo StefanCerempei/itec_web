@@ -25,6 +25,12 @@ function HomeEntry() {
     return isAuthenticated ? <Navigate to="/collab" replace /> : <Welcome />
 }
 
+function FallbackEntry() {
+    if (typeof window === 'undefined') return <Navigate to="/" replace />
+    const isAuthenticated = Boolean(window.localStorage.getItem('authToken'))
+    return isAuthenticated ? <Navigate to="/collab" replace /> : <Navigate to="/" replace />
+}
+
 function App() {
     return (
         <Router>
@@ -48,6 +54,7 @@ function App() {
                     <Route path="/terms" element={<TermsOfService />} />
                     <Route path="/gdpr" element={<GDPR />} />
                     <Route path="/security" element={<Security />} />
+                    <Route path="*" element={<FallbackEntry />} />
                 </Routes>
             </div>
         </Router>
