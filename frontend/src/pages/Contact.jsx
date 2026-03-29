@@ -71,13 +71,13 @@ const Contact = () => {
         {
             name: 'Jurjita Alexandru',
             role: 'Full Stack Web Developer',
-            specialty: 'Backend & API Expert',
+            specialty: 'Front end expert',
             instagram: 'https://www.instagram.com/alexandru.j1/',
             username: '@alexandru.j1'
         },
         {
             name: 'Voicu Bogdan',
-            role: 'Full Stack Web Developer',
+            role: 'DevOps & AI Specialist',
             specialty: 'Git Expert',
             instagram: 'https://www.instagram.com/voicubogdan14/',
             username: '@voicubogdan14'
